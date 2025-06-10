@@ -5,3 +5,8 @@ dependencies = [
     "numpy",
     "imgaug"
 ]
+
+[project.optional-dependencies]
+GPU = [
+    "cupy",
+]
