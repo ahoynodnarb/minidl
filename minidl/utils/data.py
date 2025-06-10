@@ -1,0 +1,46 @@
+try:
+    import cupy as np  # type: ignore
+except ImportError:
+    import numpy as np
+
+import imgaug.augmenters as iaa
+import imgaug.parameters as iap
+
+
+def split_batches(data, batch_size):
+    if batch_size == 1:
+        return np.expand_dims(data, axis=1)
+    indices = range(batch_size, len(data), batch_size)
+    return np.split(data, indices)
+
+
+def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same shape")
+    return sample_correct(y_true, y_pred) / len(y_true)
+
+
+def sample_correct(y_true: np.ndarray, y_pred: np.ndarray) -> int:
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same shape")
+    overlap = np.argmax(y_true, axis=-1) == np.argmax(y_pred, axis=-1)
+    total_correct = np.sum(overlap)
+    return total_correct
+
+
+def shuffle_dataset(
+    data: np.ndarray, labels: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    indices = np.arange(len(data))
+    np.random.shuffle(indices)
+    return (data[indices], labels[indices])
+
+
+if __name__ == "__main__":
+    test = np.random.default_rng(2).uniform(-100, 100, size=(100000, 32, 2))
+    inputs = np.random.default_rng(2).uniform(-100, 100, size=(100000, 2))
+    a = split_batches(inputs, 5)
+    print(len(test[0]))
+    print(len(a[0]))
+    print(test.shape)
+    print(a.shape)

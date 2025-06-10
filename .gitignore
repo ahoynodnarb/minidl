@@ -1,0 +1,8 @@
+__pycache__/
+MNIST/
+cifar-10-batches-py/
+.DS_Store
+**.npy
+**test**.py
+minidl.egg-info/
+dist/
