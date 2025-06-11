@@ -3,7 +3,7 @@ try:
 except ImportError:
     import numpy as np
 
-from layers import (
+from minidl.layers import (
     Dense,
     Conv2D,
     LayerNormalization,
