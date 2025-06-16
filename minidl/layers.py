@@ -58,6 +58,25 @@ def calculate_same_padding(height, width, kernel_height, kernel_width, stride):
     return (pad_top, pad_bottom, pad_left, pad_right)
 
 
+def calculate_full_padding(kernel_height, kernel_width, original_padding):
+        pad_top = kernel_height - 1
+        pad_bottom = kernel_height - 1
+        pad_left = kernel_width - 1
+        pad_right = kernel_width - 1
+        if isinstance(original_padding, tuple):
+            o_top, o_bottom, o_left, o_right = original_padding
+            pad_top -= o_top
+            pad_bottom -= o_bottom
+            pad_left -= o_left
+            pad_right -= o_right
+        else:
+            pad_top -= original_padding
+            pad_bottom -= original_padding
+            pad_left -= original_padding
+            pad_right -= original_padding
+        return (pad_top, pad_bottom, pad_left, pad_right)
+
+
 def calculate_convolved_dimensions(
     height, width, kernel_height, kernel_width, padding, stride
 ):
@@ -611,13 +630,10 @@ class Conv2D(OptimizableLayer):
         flipped_kernels = np.flip(np.flip(self.kernels, axis=1), axis=2)
         flipped_kernels = np.swapaxes(flipped_kernels, -1, 0)
 
-        vertical_full_padding = (self.kernel_height - 1) // 2
-        horizontal_full_padding = (self.kernel_width - 1) // 2
-        full_padding = (
-            vertical_full_padding,
-            vertical_full_padding,
-            horizontal_full_padding,
-            horizontal_full_padding,
+        full_padding = calculate_full_padding(
+            kernel_height=self.kernel_width,
+            kernel_width=self.kernel_height,
+            original_padding=self.padding,
         )
         grad_wrt_x = perform_convolution(
             grad,
