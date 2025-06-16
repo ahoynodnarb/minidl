@@ -89,8 +89,7 @@ def test_grad_wrt_parameter(
 
 
 def test_dense_gradients():
-    """Test your Dense implementation against numerical gradients"""
-    print("Testing dense...")
+    print("Testing Dense...")
 
     # Create a tiny Dense layer for testing
     dense = Dense(32, 64)
@@ -161,8 +160,6 @@ def test_dense_gradients():
 
 
 def test_conv2d_gradients():
-    """Test your Conv2D implementation against numerical gradients"""
-
     print("Testing Conv2D...")
 
     # Create a tiny Conv2D layer for testing
@@ -242,6 +239,8 @@ def test_conv2d_gradients():
 
 def test_batchnorm_gradients():
 
+    print("Testing BatchNorm...")
+
     batch_size = 10
     n_dimensions = 16
     batchnorm = BatchNormalization(n_dimensions)
@@ -308,6 +307,9 @@ def test_batchnorm_gradients():
 
 
 def test_layernorm_gradients():
+
+    print("Testing LayerNorm...")
+
     batch_size = 10
     n_dimensions = 16
     layernorm = LayerNormalization(n_dimensions)

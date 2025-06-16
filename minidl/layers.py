@@ -59,22 +59,22 @@ def calculate_same_padding(height, width, kernel_height, kernel_width, stride):
 
 
 def calculate_full_padding(kernel_height, kernel_width, original_padding):
-        pad_top = kernel_height - 1
-        pad_bottom = kernel_height - 1
-        pad_left = kernel_width - 1
-        pad_right = kernel_width - 1
-        if isinstance(original_padding, tuple):
-            o_top, o_bottom, o_left, o_right = original_padding
-            pad_top -= o_top
-            pad_bottom -= o_bottom
-            pad_left -= o_left
-            pad_right -= o_right
-        else:
-            pad_top -= original_padding
-            pad_bottom -= original_padding
-            pad_left -= original_padding
-            pad_right -= original_padding
-        return (pad_top, pad_bottom, pad_left, pad_right)
+    pad_top = kernel_height - 1
+    pad_bottom = kernel_height - 1
+    pad_left = kernel_width - 1
+    pad_right = kernel_width - 1
+    if isinstance(original_padding, tuple):
+        o_top, o_bottom, o_left, o_right = original_padding
+        pad_top -= o_top
+        pad_bottom -= o_bottom
+        pad_left -= o_left
+        pad_right -= o_right
+    else:
+        pad_top -= original_padding
+        pad_bottom -= original_padding
+        pad_left -= original_padding
+        pad_right -= original_padding
+    return (pad_top, pad_bottom, pad_left, pad_right)
 
 
 def calculate_convolved_dimensions(
@@ -91,6 +91,26 @@ def calculate_convolved_dimensions(
     out_height = (height - kernel_height + vertical_padding) // stride + 1
     out_width = (width - kernel_width + horizontal_padding) // stride + 1
     return (out_height, out_width)
+
+
+class Parameter:
+    def __init__(self, default=None):
+        self.default_val = default
+        self.grad_func = None
+
+    def __set_name__(self, obj, name):
+        self.internal_name = "_" + name
+        self.__set__(obj, self.default_val)
+
+    def __get__(self, obj, objtype=None):
+        return getattr(obj, self.internal_name)
+
+    def __set__(self, obj, value):
+        setattr(obj, self.internal_name, value)
+
+    def grad(self, func):
+        self.grad_func = func
+        return func
 
 
 class Layer:
@@ -115,6 +135,7 @@ class OptimizableLayer(Layer):
         self.l2_lambda = l2_lambda
         self.clip = clip
         self.grad_funcs = []
+        self.bind_grads()
 
     def save_layer(self, fstream):
         raise NotImplementedError
@@ -129,17 +150,21 @@ class OptimizableLayer(Layer):
     def n_params(self):
         return len(self.grad_funcs)
 
-    def bind_grad(self, param, func):
-        self.grad_funcs.append((param, func))
+    def bind_grads(self):
+        class_dict = self.__class__.__dict__
+        for field in class_dict.values():
+            if not isinstance(field, Parameter):
+                continue
+            self.grad_funcs.append((field, field.grad_func))
 
     def update_params(self, grad, optimizers):
-        for (param_name, func), optimizer in zip(self.grad_funcs, optimizers):
-            param = self.__getattribute__(param_name)
-            grad_wrt_param = func(grad)
+        for (param, func), optimizer in zip(self.grad_funcs, optimizers):
+            param_val = param.__get__(self)
+            grad_wrt_param = func(self, grad)
             param_updated = optimizer.update(
-                param, grad_wrt_param, l2_lambda=self.l2_lambda
+                param_val, grad_wrt_param, l2_lambda=self.l2_lambda
             )
-            self.__setattr__(param_name, param_updated)
+            param.__set__(self, param_updated)
 
 
 # wrapper to signify it's actually an activation
@@ -157,16 +182,13 @@ class ActivationLayer(Layer):
 
 
 class Dense(OptimizableLayer):
-    # n_params = 2
+    weights = Parameter()
+    biases = Parameter()
 
     def __init__(self, n_neurons: int, n_weights: int, **kwargs):
         super().__init__(**kwargs)
         self.n_neurons = n_neurons
         self.n_weights = n_weights
-        self.weights = None
-        self.biases = None
-        self.bind_grad("weights", self.compute_grad_wrt_w)
-        self.bind_grad("biases", self.compute_grad_wrt_biases)
 
     def save_layer(self, fstream):
         np.save(fstream, self.weights)
@@ -179,11 +201,11 @@ class Dense(OptimizableLayer):
     def compute_grad_wrt_x(self, grad):
         return grad.dot(self.weights.T)
 
-    # @OptimizableLayer.bind_grad("weights")
+    @weights.grad
     def compute_grad_wrt_w(self, grad):
         return self.prev_outputs.T.dot(grad)
 
-    # @OptimizableLayer.bind_grad("biases")
+    @biases.grad
     def compute_grad_wrt_biases(self, grad):
         return np.sum(grad, axis=0, keepdims=True)
 
@@ -266,14 +288,13 @@ class Dropout(Layer):
 
 # WIP
 class LayerNormalization(OptimizableLayer):
+    weights = Parameter()
+    biases = Parameter()
+
     def __init__(self, n_dimensions, epsilon=1e-3, **kwargs):
         super().__init__(**kwargs)
         self.n_dimensions = n_dimensions
         self.epsilon = epsilon
-        self.weights = None
-        self.biases = None
-        self.bind_grad("weights", self.compute_grad_wrt_w)
-        self.bind_grad("biases", self.compute_grad_wrt_biases)
 
     def compute_grad_wrt_x(self, grad):
         # Gradient through scaling (w) and normalization (z)
@@ -299,10 +320,12 @@ class LayerNormalization(OptimizableLayer):
         )
         return grad_wrt_x
 
+    @weights.grad
     def compute_grad_wrt_w(self, grad):
         summed_dims = tuple(range(grad.ndim - 1))
         return np.sum(self.norm * grad, axis=summed_dims, keepdims=True)
 
+    @biases.grad
     def compute_grad_wrt_biases(self, grad):
         summed_dims = tuple(range(grad.ndim - 1))
         return np.sum(grad, axis=summed_dims, keepdims=True)
@@ -336,7 +359,8 @@ class LayerNormalization(OptimizableLayer):
 # and standard deviation of 1. This way, the layers have a more predictable spread
 # of inputs, and should be able to learn quite a bit faster and be more confident (lower loss)
 class BatchNormalization(OptimizableLayer):
-    # n_params = 2
+    gamma = Parameter()
+    beta = Parameter()
 
     def __init__(self, n_dimensions, epsilon=1e-3, momentum=0.99, **kwargs):
         super().__init__(**kwargs)
@@ -345,10 +369,6 @@ class BatchNormalization(OptimizableLayer):
         self.momentum = momentum
         self.moving_means = np.zeros(self.n_dimensions)
         self.moving_variances = np.ones(self.n_dimensions)
-        self.gamma = None
-        self.beta = None
-        self.bind_grad("gamma", self.compute_grad_wrt_gamma)
-        self.bind_grad("beta", self.compute_grad_wrt_beta)
 
     def compute_grad_wrt_x(self, grad):
         ndims = len(grad.shape)
@@ -385,10 +405,12 @@ class BatchNormalization(OptimizableLayer):
 
         return grad_input
 
+    @gamma.grad
     def compute_grad_wrt_gamma(self, grad):
         normalized_dimensions = tuple(range(grad.ndim - 1))
         return np.sum(grad * self.x_hat, axis=normalized_dimensions)
 
+    @beta.grad
     def compute_grad_wrt_beta(self, grad):
         normalized_dimensions = tuple(range(grad.ndim - 1))
         return np.sum(grad, axis=normalized_dimensions)
@@ -562,7 +584,8 @@ def calculate_im2col_indices(rows_out, cols_out, kernel_height, kernel_width, st
 # They take some kernel, dot product it with fixed sections of an input image,
 # and output another image containing different image features
 class Conv2D(OptimizableLayer):
-    # n_params = 2
+    kernels = Parameter()
+    biases = Parameter()
 
     def __init__(
         self,
@@ -617,11 +640,6 @@ class Conv2D(OptimizableLayer):
             self.kernel_height, self.kernel_width, *self.out_dims, self.stride
         )
 
-        self.kernels = None
-        self.biases = None
-        self.bind_grad("kernels", self.compute_grad_wrt_w)
-        self.bind_grad("biases", self.compute_grad_wrt_biases)
-
     # https://deeplearning.cs.cmu.edu/F21/document/recitation/Recitation5/CNN_Backprop_Recitation_5_F21.pdf
     # we compute the gradient with respect to the layer's inputs by rotating the kernels diagonally, transposing the kernel channel
     # and number of kernel dimension of the kernel matrix, and convolving the gradient by that new kernel matrix
@@ -649,6 +667,7 @@ class Conv2D(OptimizableLayer):
     # the gradient with respect to the weights (kernel) tells us how the loss function changes relative to
     # changes to each individual element of the kernel
     # the overall computation boils down to convolving each channel of the previous outputs by each channel of the gradient
+    @kernels.grad
     def compute_grad_wrt_w(self, grad):
         # normally, computing grad_wrt_w requires you to do convolutions for each slice of the previous outputs
         # and each slice of the gradient. But we can take advantage of batching to instead treat each slice of
@@ -668,6 +687,7 @@ class Conv2D(OptimizableLayer):
 
         return grad_wrt_w
 
+    @biases.grad
     def compute_grad_wrt_biases(self, grad):
         return np.sum(grad, axis=0, keepdims=True)
 
@@ -875,24 +895,6 @@ class ResidualBlock(OptimizableLayer):
         self.layers = layers
         self.update_grad_funcs()
 
-    def __setattr__(self, name, value) -> None:
-        if ":" not in name:
-            return super().__setattr__(name, value)
-        idx = name.index(":")
-        param_name = name[:idx]
-        layer_idx = int(name[idx + 1 :])
-        layer = self.layers[layer_idx]
-        return layer.__setattr__(param_name, value)
-
-    def __getattribute__(self, name) -> None:
-        if ":" not in name:
-            return super().__getattribute__(name)
-        idx = name.index(":")
-        param_name = name[:idx]
-        layer_idx = int(name[idx + 1 :])
-        layer = self.layers[layer_idx]
-        return layer.__getattribute__(param_name)
-
     # optimizers will be in the correct order
     def update_params(self, grad, optimizers):
         i = 0
@@ -909,7 +911,7 @@ class ResidualBlock(OptimizableLayer):
         for i, layer in enumerate(self.layers):
             if isinstance(layer, OptimizableLayer):
                 self.grad_funcs.extend(
-                    [(f"{param}:{i}", func) for param, func in layer.grad_funcs]
+                    [(param, func) for param, func in layer.grad_funcs]
                 )
 
     def setup(self, trainable=True):
