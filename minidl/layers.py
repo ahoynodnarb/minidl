@@ -131,9 +131,8 @@ class Layer:
 
 
 class OptimizableLayer(Layer):
-    def __init__(self, l2_lambda=0, clip=None):
+    def __init__(self, l2_lambda=0):
         self.l2_lambda = l2_lambda
-        self.clip = clip
         self.grad_funcs = []
         self.bind_grads()
 
