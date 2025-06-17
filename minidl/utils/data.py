@@ -34,13 +34,3 @@ def shuffle_dataset(
     indices = np.arange(len(data))
     np.random.shuffle(indices)
     return (data[indices], labels[indices])
-
-
-if __name__ == "__main__":
-    test = np.random.default_rng(2).uniform(-100, 100, size=(100000, 32, 2))
-    inputs = np.random.default_rng(2).uniform(-100, 100, size=(100000, 2))
-    a = split_batches(inputs, 5)
-    print(len(test[0]))
-    print(len(a[0]))
-    print(test.shape)
-    print(a.shape)
