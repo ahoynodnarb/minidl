@@ -1,8 +1,8 @@
 try:
-    import cupy as np  # type: ignore
+    import cupy  # type: ignore
 
     BACKEND = "cupy"
 except ImportError:
-    import numpy as np
+    import numpy
 
     BACKEND = "numpy"

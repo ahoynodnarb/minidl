@@ -4,15 +4,15 @@ except ImportError:
     import numpy as np
 
 
-from minidl.config import BACKEND
-from minidl.layers import OptimizableLayer
-from minidl.loss_functions import LossFunction
-from minidl.optimizers import Optimizer, LRScheduler
-from minidl.utils.data import split_batches, shuffle_dataset
-
 from copy import deepcopy
 
 from tqdm import tqdm
+
+from minidl.config import BACKEND
+from minidl.layers import OptimizableLayer
+from minidl.loss_functions import LossFunction
+from minidl.optimizers import LRScheduler, Optimizer
+from minidl.utils.data import shuffle_dataset, split_batches
 
 
 class NeuralNetwork:
@@ -193,19 +193,19 @@ class NeuralNetwork:
                         optimizer.update_state(epoch, avg_val_loss)
 
             print(
-                f"Validation accuracy at the end of epoch {epoch+1}: {val_acc}",
+                f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
                 sep="\n",
             )
             print(
-                f"Average validation loss at the end of epoch {epoch+1}: {avg_val_loss}",
+                f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
                 sep="\n",
             )
             print(
-                f"Training accuracy at the end of epoch {epoch+1}: {training_acc}",
+                f"Training accuracy at the end of epoch {epoch + 1}: {training_acc}",
                 sep="\n",
             )
             print(
-                f"Average training loss at the end of epoch {epoch+1}: {avg_training_loss}",
+                f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
                 sep="\n",
             )
 

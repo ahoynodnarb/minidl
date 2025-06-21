@@ -3,15 +3,15 @@ try:
 except ImportError:
     import numpy as np
 
+from tqdm import tqdm
+
 from minidl.layers import (
-    Dense,
-    Conv2D,
-    LayerNormalization,
     BatchNormalization,
+    Conv2D,
+    Dense,
+    LayerNormalization,
     OptimizableLayer,
 )
-
-from tqdm import tqdm
 
 
 def numerical_gradient(f, x, h=1e-5):
@@ -238,7 +238,6 @@ def test_conv2d_gradients():
 
 
 def test_batchnorm_gradients():
-
     print("Testing BatchNorm...")
 
     batch_size = 10
@@ -307,7 +306,6 @@ def test_batchnorm_gradients():
 
 
 def test_layernorm_gradients():
-
     print("Testing LayerNorm...")
 
     batch_size = 10

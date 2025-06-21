@@ -3,9 +3,6 @@ try:
 except ImportError:
     import numpy as np
 
-import imgaug.augmenters as iaa
-import imgaug.parameters as iap
-
 
 def split_batches(data, batch_size):
     if batch_size == 1:

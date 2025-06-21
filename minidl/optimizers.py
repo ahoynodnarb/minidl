@@ -248,8 +248,9 @@ class LinearLR(LRScheduler):
 
     def update(self, params, grad, **kwargs):
         if not self.stopped:
-            self.optimizer.learning_rate = (
-                self.initial_lr * self.start_factor**self.total_iterations
+            self.optimizer.learning_rate = self.initial_lr * (
+                (1 - self.iterations / self.total_iterations) * self.start_factor
+                + (self.iterations / self.total_iterations) * self.end_factor
             )
         else:
             self.optimizer.learning_rate = self.initial_lr * self.end_factor
