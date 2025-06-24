@@ -1,8 +1,4 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
-
+import minidiff as md
 from tqdm import tqdm
 
 from minidl.layers import (
@@ -21,7 +17,7 @@ def numerical_gradient(f, x, h=1e-5):
     x: point to compute gradient at
     h: small step size
     """
-    grad = np.zeros_like(x)
+    grad = md.zeros_like(x)
     flat_x = x.flatten()
     flat_grad = grad.flatten()
 
@@ -71,10 +67,10 @@ def test_grad_wrt_parameter(
     layer.trainable = False
 
     # Compare
-    diff_param = np.abs(analytical_grad_param - numerical_grad_param)
-    max_diff_param = np.max(diff_param)
-    relative_error_param = max_diff_param / (
-        np.max(np.abs(numerical_grad_param)) + 1e-8
+    diff_param = md.abs(analytical_grad_param - numerical_grad_param)
+    max_diff_param = md.max(diff_param).item()
+    relative_error_param = (
+        max_diff_param / (md.max(md.abs(numerical_grad_param)) + 1e-8).item()
     )
 
     print(f"Max absolute difference ({param_name}): {max_diff_param:.2e}")
@@ -95,33 +91,33 @@ def test_dense_gradients():
     dense = Dense(32, 64)
 
     # Initialize with small random weights for stability
-    dense.weights = 0.1 * np.random.randn(64, 32)
-    dense.biases = 0.1 * np.random.randn(1, 32)
+    dense.weights = 0.1 * md.randn(64, 32)
+    dense.biases = 0.1 * md.randn(1, 32)
 
     # Create small test input and target
     batch_size = 10
-    test_input = np.random.randn(batch_size, 64)
-    target_output = np.random.randn(batch_size, 32)
+    test_input = md.randn(batch_size, 64)
+    target_output = md.randn(batch_size, 32)
 
     def loss_function_weights(weights):
         """Loss as function of weights"""
         # conv.kernels = kernels
         dense.weights = weights
         output = dense.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_biases(biases):
         """Loss as a function of biases"""
         dense.biases = biases
         output = dense.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_inputs(input_data):
         """Loss as function of input"""
         output = dense.forward(input_data)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     # weights
@@ -174,32 +170,32 @@ def test_conv2d_gradients():
     )
 
     # Initialize with small random weights for stability
-    conv.kernels = 0.1 * np.random.randn(3, 3, 3, 2)  # (n_kernels, h, w, in_channels)
-    conv.biases = 0.1 * np.random.randn(4, 4, 3)  # (out_h, out_w, n_kernels)
+    conv.kernels = 0.1 * md.randn(3, 3, 3, 2)  # (n_kernels, h, w, in_channels)
+    conv.biases = 0.1 * md.randn(4, 4, 3)  # (out_h, out_w, n_kernels)
 
     # Create small test input and target
     batch_size = 10
-    test_input = np.random.randn(batch_size, 4, 4, 2)
-    target_output = np.random.randn(batch_size, 4, 4, 3)
+    test_input = md.randn(batch_size, 4, 4, 2)
+    target_output = md.randn(batch_size, 4, 4, 3)
 
     def loss_function_kernels(kernels):
         """Loss as function of kernel weights"""
         conv.kernels = kernels
         output = conv.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_biases(biases):
         """Loss as function of kernel biases"""
         conv.biases = biases
         output = conv.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_inputs(input_data):
         """Loss as function of input"""
         output = conv.forward(input_data)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     # kernels
@@ -243,31 +239,31 @@ def test_batchnorm_gradients():
     batch_size = 10
     n_dimensions = 16
     batchnorm = BatchNormalization(n_dimensions)
-    batchnorm.gamma = 0.1 * np.random.randn(n_dimensions)
-    batchnorm.beta = 0.1 * np.random.randn(n_dimensions)
+    batchnorm.gamma = 0.1 * md.randn(n_dimensions)
+    batchnorm.beta = 0.1 * md.randn(n_dimensions)
 
-    test_input = np.random.randn(batch_size, 10, 10, 16)
-    target_output = np.random.randn(batch_size, 10, 10, 16)
+    test_input = md.randn(batch_size, 10, 10, 16)
+    target_output = md.randn(batch_size, 10, 10, 16)
 
     def loss_function_gamma(gamma):
         """Loss as function of batchnorm gammas"""
         batchnorm.gamma = gamma
         output = batchnorm.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_beta(beta):
         """Loss as function of batchnorm betas"""
         batchnorm.beta = beta
         output = batchnorm.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_inputs(input_data):
         """Loss as function of input"""
         # print("loss called")
         output = batchnorm.forward(input_data)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     # gamma
@@ -311,31 +307,31 @@ def test_layernorm_gradients():
     batch_size = 10
     n_dimensions = 16
     layernorm = LayerNormalization(n_dimensions)
-    layernorm.weights = 0.1 * np.random.randn(n_dimensions)
-    layernorm.biases = 0.1 * np.random.randn(n_dimensions)
+    layernorm.weights = 0.1 * md.randn(n_dimensions)
+    layernorm.biases = 0.1 * md.randn(n_dimensions)
 
-    test_input = np.random.randn(batch_size, 10, 10, 16)
-    target_output = np.random.randn(batch_size, 10, 10, 16)
+    test_input = md.randn(batch_size, 10, 10, 16)
+    target_output = md.randn(batch_size, 10, 10, 16)
 
     def loss_function_weights(weights):
         """Loss as function of batchnorm gammas"""
         layernorm.weights = weights
         output = layernorm.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_biases(biases):
         """Loss as function of batchnorm betas"""
         layernorm.biases = biases
         output = layernorm.forward(test_input)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     def loss_function_inputs(input_data):
         """Loss as function of input"""
         # print("loss called")
         output = layernorm.forward(input_data)
-        loss = np.sum((output - target_output) ** 2) / 2
+        loss = md.sum((output - target_output) ** 2) / 2
         return loss
 
     # gamma

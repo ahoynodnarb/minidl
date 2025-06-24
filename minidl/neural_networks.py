@@ -1,14 +1,8 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
-
-
 from copy import deepcopy
 
+import minidiff as md
 from tqdm import tqdm
 
-from minidl.config import BACKEND
 from minidl.layers import OptimizableLayer
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler, Optimizer
@@ -89,7 +83,7 @@ class NeuralNetwork:
     def backpropagate(self, grad):
         optimizer_idx = 0
         for layer in reversed(self.layers):
-            grad = np.clip(grad, -1.0, 1.0)
+            grad = md.clip(grad, -1.0, 1.0)
             old_grad = grad
             grad = layer.backward(grad)
             if not layer.trainable:
@@ -121,7 +115,7 @@ class NeuralNetwork:
 
         if val_data is None or val_labels is None:
             val_len = int(len(train_data) * 0.15)
-            indices = np.random.permutation(len(train_data))
+            indices = md.permutation(len(train_data))
             train_indices = indices[val_len:]
             val_indices = indices[:val_len]
             train_data, train_labels = data[train_indices], labels[train_indices]
@@ -138,12 +132,12 @@ class NeuralNetwork:
                 train_data, train_labels
             )
             if aug_func is not None:
-                if BACKEND == "cupy":
-                    shuffled_train_data = np.array(
-                        aug_func(np.asnumpy(shuffled_train_data))
-                    )
-                else:
-                    shuffled_train_data = aug_func(shuffled_train_data)
+                # if BACKEND == "cupy":
+                #     shuffled_train_data = np.array(
+                #         aug_func(np.asnumpy(shuffled_train_data))
+                #     )
+                # else:
+                shuffled_train_data = aug_func(shuffled_train_data)
 
             if norm_func is not None:
                 shuffled_train_data = norm_func(shuffled_train_data)
@@ -171,7 +165,7 @@ class NeuralNetwork:
                 total_training_correct += self.loss_function.total_correct(
                     y_true, y_pred
                 )
-                total_training_loss += np.sum(self.loss_function(y_true, y_pred))
+                total_training_loss += md.sum(self.loss_function(y_true, y_pred))
 
             self.trainable = False
             total_val_correct = 0
@@ -179,7 +173,7 @@ class NeuralNetwork:
             for x, y_true in zip(batched_val_data, batched_val_labels):
                 val_pred = self(x)
                 total_val_correct += self.loss_function.total_correct(y_true, val_pred)
-                total_val_loss += np.sum(self.loss_function(y_true, val_pred))
+                total_val_loss += md.sum(self.loss_function(y_true, val_pred))
 
             val_acc = total_val_correct / len(val_data)
             avg_val_loss = total_val_loss / len(val_data)
@@ -231,7 +225,7 @@ class NeuralNetwork:
             y_pred = self(x)
 
             total_testing_correct += self.loss_function.total_correct(y_true, y_pred)
-            total_testing_loss += np.sum(self.loss_function(y_true, y_pred))
+            total_testing_loss += md.sum(self.loss_function(y_true, y_pred))
 
         print(
             f"Total testing accuracy: {total_testing_correct / len(testing_data)}",

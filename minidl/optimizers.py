@@ -1,9 +1,6 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
-
 import math
+
+import minidiff as md
 
 
 class Optimizer:
@@ -25,7 +22,7 @@ class SGD(Optimizer):
 
     def update(self, params, grad, l2_lambda=0):
         if self.velocity is None:
-            self.velocity = np.zeros_like(params)
+            self.velocity = md.zeros_like(params)
 
         batch_size = grad.shape[0]
         regularized_grad = grad + l2_lambda * params
@@ -49,8 +46,8 @@ class Adam(Optimizer):
     def update(self, params, grad, l2_lambda=0):
         self.t += 1
         if self.momentum is None:
-            self.momentum = np.zeros_like(grad)
-            self.velocity = np.zeros_like(grad)
+            self.momentum = md.zeros_like(grad)
+            self.velocity = md.zeros_like(grad)
 
         regularized_grad = grad + l2_lambda * params
 
@@ -62,7 +59,7 @@ class Adam(Optimizer):
         m_hat = self.momentum / (1 - self.beta1**self.t)
         v_hat = self.velocity / (1 - self.beta2**self.t)
 
-        w_updt = self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
+        w_updt = self.learning_rate * m_hat / (md.sqrt(v_hat) + self.epsilon)
         return params - w_updt
 
 
@@ -80,8 +77,8 @@ class AdamW(Optimizer):
     def update(self, params, grad, l2_lambda=0):
         self.t += 1
         if self.momentum is None:
-            self.momentum = np.zeros_like(grad)
-            self.velocity = np.zeros_like(grad)
+            self.momentum = md.zeros_like(grad)
+            self.velocity = md.zeros_like(grad)
 
         self.momentum = self.beta1 * self.momentum + (1 - self.beta1) * grad
         self.velocity = self.beta2 * self.velocity + (1 - self.beta2) * (grad**2)
@@ -92,7 +89,7 @@ class AdamW(Optimizer):
         # this part decouples weight decay from the step calculation
         # https://paperswithcode.com/method/adamw
         return params - self.learning_rate * (
-            m_hat / (np.sqrt(v_hat) + self.epsilon) + l2_lambda * params
+            m_hat / (md.sqrt(v_hat) + self.epsilon) + l2_lambda * params
         )
 
 

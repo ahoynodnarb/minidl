@@ -1,9 +1,6 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
-
 import math
+
+import minidiff as md
 
 
 def add_padding(mat, padding=None):
@@ -26,7 +23,7 @@ def add_padding(mat, padding=None):
             pad_top = pad_left = padding
             pad_bottom = pad_right = padding + 1
 
-    padded = np.zeros(
+    padded = md.zeros(
         (
             batch_size,
             pad_top + height + pad_bottom,
@@ -190,12 +187,12 @@ class Dense(OptimizableLayer):
         self.n_weights = n_weights
 
     def save_layer(self, fstream):
-        np.save(fstream, self.weights)
-        np.save(fstream, self.biases)
+        md.save(fstream, self.weights)
+        md.save(fstream, self.biases)
 
     def load_layer(self, fstream):
-        self.weights = np.load(fstream)
-        self.biases = np.load(fstream)
+        self.weights = md.load(fstream)
+        self.biases = md.load(fstream)
 
     def compute_grad_wrt_x(self, grad):
         return grad.dot(self.weights.T)
@@ -206,7 +203,7 @@ class Dense(OptimizableLayer):
 
     @biases.grad
     def compute_grad_wrt_biases(self, grad):
-        return np.sum(grad, axis=0, keepdims=True)
+        return md.sum(grad, axis=0, keepdims=True)
 
     # called when actually added to a net
     def setup(self, trainable=True):
@@ -216,15 +213,15 @@ class Dense(OptimizableLayer):
         # pre-transposing here so we don't have to later for calculations
         # note: should probably change this rng later, but I don't think it actually matters that much
         if self.weights is None:
-            scale = np.sqrt(2 / self.n_weights)
-            self.weights = scale * np.random.randn(self.n_weights, self.n_neurons)
+            scale = md.sqrt(2 / self.n_weights)
+            self.weights = scale * md.random.randn(self.n_weights, self.n_neurons)
         # store biases as row vector of size n_neurons
         if self.biases is None:
-            self.biases = np.zeros((1, self.n_neurons))
+            self.biases = md.zeros((1, self.n_neurons))
 
     # inputs should be a row vector
     # forward should return a row vector
-    def forward(self, inputs: np.ndarray) -> np.ndarray:
+    def forward(self, inputs: md.Tensor) -> md.Tensor:
         # number of inputs needs to match number of weights
         if inputs.shape[-1] != self.weights.shape[0]:
             raise ValueError(
@@ -242,7 +239,7 @@ class Dense(OptimizableLayer):
 
     # gradient should be a row vector (will represent the derivative of the cost function with respect to this layer's outputs)
     # gradient will be of shape (n_batches, n_neurons)
-    def backward(self, grad: np.ndarray) -> np.ndarray:
+    def backward(self, grad: md.Tensor) -> md.Tensor:
         if grad.shape[-1] != self.weights.shape[-1]:
             raise ValueError(
                 "Number of gradients in grad does not match the number of neurons in this layer"
@@ -272,7 +269,7 @@ class Dropout(Layer):
     def forward(self, inputs):
         if not self.trainable:
             return inputs
-        self.mask = np.random.binomial(1, 1 - self.p, inputs.shape)
+        self.mask = md.random.binomial(1, 1 - self.p, inputs.shape)
         if self.auto_scale:
             return self.mask * inputs / (1 - self.p)
         return self.mask * inputs
@@ -301,15 +298,15 @@ class LayerNormalization(OptimizableLayer):
 
         # Gradient through variance (σ²)
         grad_var = (
-            np.sum(grad_z * self.shifted, axis=-1, keepdims=True)
+            md.sum(grad_z * self.shifted, axis=-1, keepdims=True)
             * (-0.5)
             * (self.inverse_std**3)
         )
 
         # Gradient through mean (μ)
-        grad_mean = np.sum(grad_z, axis=-1, keepdims=True) * (
+        grad_mean = md.sum(grad_z, axis=-1, keepdims=True) * (
             -self.inverse_std
-        ) + grad_var * np.mean(-2 * self.shifted, axis=-1, keepdims=True)
+        ) + grad_var * md.mean(-2 * self.shifted, axis=-1, keepdims=True)
 
         # Combine gradients
         grad_wrt_x = (
@@ -322,27 +319,27 @@ class LayerNormalization(OptimizableLayer):
     @weights.grad
     def compute_grad_wrt_w(self, grad):
         summed_dims = tuple(range(grad.ndim - 1))
-        return np.sum(self.norm * grad, axis=summed_dims, keepdims=True)
+        return md.sum(self.norm * grad, axis=summed_dims, keepdims=True)
 
     @biases.grad
     def compute_grad_wrt_biases(self, grad):
         summed_dims = tuple(range(grad.ndim - 1))
-        return np.sum(grad, axis=summed_dims, keepdims=True)
+        return md.sum(grad, axis=summed_dims, keepdims=True)
 
     def setup(self, trainable=True):
         self.trainable = trainable
         if self.weights is None:
-            self.weights = np.ones(self.n_dimensions)
+            self.weights = md.ones(self.n_dimensions)
         if self.biases is None:
-            self.biases = np.zeros(self.n_dimensions)
+            self.biases = md.zeros(self.n_dimensions)
 
     # https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
     def forward(self, inputs):
         if self.trainable:
             self.prev_outputs = inputs
-        means = np.mean(inputs, axis=-1, keepdims=True)
+        means = md.mean(inputs, axis=-1, keepdims=True)
         self.shifted = inputs - means
-        self.variance = np.sum(self.shifted**2, axis=-1, keepdims=True) + self.epsilon
+        self.variance = md.sum(self.shifted**2, axis=-1, keepdims=True) + self.epsilon
         self.inverse_std = self.variance**-0.5
         self.norm = self.shifted * self.inverse_std
         return self.norm * self.weights + self.biases
@@ -366,8 +363,8 @@ class BatchNormalization(OptimizableLayer):
         self.n_dimensions = n_dimensions
         self.epsilon = epsilon
         self.momentum = momentum
-        self.moving_means = np.zeros(self.n_dimensions)
-        self.moving_variances = np.ones(self.n_dimensions)
+        self.moving_means = md.zeros(self.n_dimensions)
+        self.moving_variances = md.ones(self.n_dimensions)
 
     def compute_grad_wrt_x(self, grad):
         ndims = len(grad.shape)
@@ -380,17 +377,17 @@ class BatchNormalization(OptimizableLayer):
         grad_x_hat = grad * gamma_reshaped
 
         # dL/dvar
-        grad_var = np.sum(
+        grad_var = md.sum(
             grad_x_hat * self.mean_deviation * -0.5 * (self.std_deviation**-3),
             axis=norm_axes,
             keepdims=True,
         )
 
         # dL/dmean
-        term1 = np.sum(-grad_x_hat / self.std_deviation, axis=norm_axes, keepdims=True)
+        term1 = md.sum(-grad_x_hat / self.std_deviation, axis=norm_axes, keepdims=True)
         term2 = (
             grad_var
-            * np.sum(-2 * self.mean_deviation, axis=norm_axes, keepdims=True)
+            * md.sum(-2 * self.mean_deviation, axis=norm_axes, keepdims=True)
             / m
         )
         grad_mean = term1 + term2
@@ -407,31 +404,31 @@ class BatchNormalization(OptimizableLayer):
     @gamma.grad
     def compute_grad_wrt_gamma(self, grad):
         normalized_dimensions = tuple(range(grad.ndim - 1))
-        return np.sum(grad * self.x_hat, axis=normalized_dimensions)
+        return md.sum(grad * self.x_hat, axis=normalized_dimensions)
 
     @beta.grad
     def compute_grad_wrt_beta(self, grad):
         normalized_dimensions = tuple(range(grad.ndim - 1))
-        return np.sum(grad, axis=normalized_dimensions)
+        return md.sum(grad, axis=normalized_dimensions)
 
     def save_layer(self, fstream):
-        np.save(fstream, self.gamma)
-        np.save(fstream, self.beta)
-        np.save(fstream, self.moving_means)
-        np.save(fstream, self.moving_variances)
+        md.save(fstream, self.gamma)
+        md.save(fstream, self.beta)
+        md.save(fstream, self.moving_means)
+        md.save(fstream, self.moving_variances)
 
     def load_layer(self, fstream):
-        self.gamma = np.load(fstream)
-        self.beta = np.load(fstream)
-        self.moving_means = np.load(fstream)
-        self.moving_variances = np.load(fstream)
+        self.gamma = md.load(fstream)
+        self.beta = md.load(fstream)
+        self.moving_means = md.load(fstream)
+        self.moving_variances = md.load(fstream)
 
     def setup(self, trainable=True):
         self.trainable = trainable
         if self.gamma is None:
-            self.gamma = np.ones(self.n_dimensions)
+            self.gamma = md.ones(self.n_dimensions)
         if self.beta is None:
-            self.beta = np.zeros(self.n_dimensions)
+            self.beta = md.zeros(self.n_dimensions)
 
     def forward(self, inputs):
         normalized_dimensions = tuple(range(inputs.ndim - 1))
@@ -447,20 +444,20 @@ class BatchNormalization(OptimizableLayer):
                 (*dummy_dims, self.n_dimensions)
             )
 
-            normalized = (inputs - means_reshaped) / np.sqrt(
+            normalized = (inputs - means_reshaped) / md.sqrt(
                 variances_reshaped + self.epsilon
             )
 
             return normalized * gamma_reshaped + beta_reshaped
 
-        self.means = np.mean(
+        self.means = md.mean(
             inputs, axis=normalized_dimensions, keepdims=True
         )  # returns mu for each dimension of input
         self.mean_deviation = inputs - self.means
-        self.variances = np.mean(
-            np.square(self.mean_deviation), axis=normalized_dimensions, keepdims=True
+        self.variances = md.mean(
+            md.square(self.mean_deviation), axis=normalized_dimensions, keepdims=True
         )  # returns sigma^2 for each input
-        self.std_deviation = np.sqrt(self.variances + self.epsilon)
+        self.std_deviation = md.sqrt(self.variances + self.epsilon)
 
         self.x_hat = self.mean_deviation / self.std_deviation
 
@@ -553,21 +550,21 @@ def perform_convolution(
     )
 
     # this is the actual convolution step, which is just a single matrix multiplication now!
-    convolved = np.tensordot(as_cols, flattened_kernels, axes=((1, 3), (1, 2)))
+    convolved = md.tensordot(as_cols, flattened_kernels, axes=((1, 3), (1, 2)))
     reshaped = convolved.reshape(out_shape)
     return reshaped
 
 
 def calculate_im2col_indices(rows_out, cols_out, kernel_height, kernel_width, stride):
     # these are the indices that correspond to each row within the patch
-    kernel_row_indices = np.repeat(np.arange(kernel_height), kernel_width)
+    kernel_row_indices = md.repeat(md.arange(kernel_height), kernel_width)
     # these are the indices corresponding to the row portion of the position of each patch within the input matrix
-    conv_row_indices = stride * np.repeat(np.arange(rows_out), cols_out)
+    conv_row_indices = stride * md.repeat(md.arange(rows_out), cols_out)
 
     # these are the indices that correspond to each column within the patch
-    kernel_col_indices = np.tile(np.arange(kernel_width), kernel_height)
+    kernel_col_indices = md.tile(md.arange(kernel_width), kernel_height)
     # these are the indices that correspond to the column portion of the position of each patch within the input matrix
-    conv_col_indices = stride * np.tile(np.arange(cols_out), rows_out)
+    conv_col_indices = stride * md.tile(md.arange(cols_out), rows_out)
 
     row_indices = kernel_row_indices.reshape((-1, 1)) + conv_row_indices.reshape(
         (1, -1)
@@ -644,8 +641,8 @@ class Conv2D(OptimizableLayer):
     # and number of kernel dimension of the kernel matrix, and convolving the gradient by that new kernel matrix
     def compute_grad_wrt_x(self, grad):
         # rotate kernels, then swap axes to match up correctly
-        flipped_kernels = np.flip(np.flip(self.kernels, axis=1), axis=2)
-        flipped_kernels = np.swapaxes(flipped_kernels, -1, 0)
+        flipped_kernels = md.flip(md.flip(self.kernels, axis=1), axis=2)
+        flipped_kernels = md.swapaxes(flipped_kernels, -1, 0)
 
         full_padding = calculate_full_padding(
             kernel_height=self.kernel_width,
@@ -672,8 +669,8 @@ class Conv2D(OptimizableLayer):
         # and each slice of the gradient. But we can take advantage of batching to instead treat each slice of
         # output as a separate entry to the batch, and each slice of the gradient as a separate "kernel"
         # this results in us having the same final convolution, just the slices end up as the channels instead
-        swapped_prev_outputs = np.swapaxes(self.prev_outputs, 0, -1)
-        swapped_grad = np.swapaxes(grad, 0, -1)
+        swapped_prev_outputs = md.swapaxes(self.prev_outputs, 0, -1)
+        swapped_grad = md.swapaxes(grad, 0, -1)
         convolved = perform_convolution(
             swapped_prev_outputs,
             swapped_grad,
@@ -682,35 +679,35 @@ class Conv2D(OptimizableLayer):
             out_dims=(self.kernel_height, self.kernel_width),
             im2col_indices=self.backward_kern_indices,
         )
-        grad_wrt_w = np.swapaxes(convolved, 0, -1)
+        grad_wrt_w = md.swapaxes(convolved, 0, -1)
 
         return grad_wrt_w
 
     @biases.grad
     def compute_grad_wrt_biases(self, grad):
-        return np.sum(grad, axis=0, keepdims=True)
+        return md.sum(grad, axis=0, keepdims=True)
 
     def save_layer(self, fstream):
-        np.save(fstream, self.kernels)
-        np.save(fstream, self.biases)
+        md.save(fstream, self.kernels)
+        md.save(fstream, self.biases)
 
     def load_layer(self, fstream):
-        self.kernels = np.load(fstream)
-        self.biases = np.load(fstream)
+        self.kernels = md.load(fstream)
+        self.biases = md.load(fstream)
 
     def setup(self, trainable=True):
         self.trainable = trainable
         if self.kernels is None:
             fan_in = self.kernel_height * self.kernel_width * self.in_channels
-            scale = np.sqrt(2.0 / fan_in)
-            self.kernels = scale * np.random.randn(
+            scale = md.sqrt(2.0 / fan_in)
+            self.kernels = scale * md.random.randn(
                 self.n_kernels,
                 self.kernel_height,
                 self.kernel_width,
                 self.in_channels,
             )
         if self.biases is None:
-            self.biases = np.zeros(self.n_kernels)
+            self.biases = md.zeros(self.n_kernels)
 
     # accepts two dimensional image, outputs 2 dimensional image
     def forward(self, inputs):
@@ -766,7 +763,7 @@ class MaxPooling2D(Layer):
         n_pools = out_height * out_width
 
         # this is just 0,1,2,...n_pools - 1. It is just the position of each pool
-        pool_indices = np.arange(n_pools)[..., np.newaxis]
+        pool_indices = md.arange(n_pools)[..., md.newaxis]
 
         # finally the actual offsets.
         # window_rows represents the row of the top left corner of the pool
@@ -786,7 +783,7 @@ class MaxPooling2D(Layer):
         # transform inputs into column vectors of patches
         as_cols = inputs[:, row_indices, col_indices, :]
 
-        flat_indices = np.argmax(as_cols, axis=1, keepdims=True)
+        flat_indices = md.argmax(as_cols, axis=1, keepdims=True)
 
         # add precomputed offsets to the indices since flat_indices gives coordinates relative to individual patches.
         # but we need indices relative to the entire input matrix
@@ -794,11 +791,11 @@ class MaxPooling2D(Layer):
         col_max_indices = flat_indices % self.pool_size + self.col_offset
 
         # need these indices as placeholders to correctly index
-        batch_indices = np.arange(batch_size)[
-            ..., np.newaxis, np.newaxis, np.newaxis
+        batch_indices = md.arange(batch_size)[
+            ..., md.newaxis, md.newaxis, md.newaxis
         ]  # shape: (batch_size, 1, 1, 1)
-        channel_indices = np.arange(self.in_channels)[
-            np.newaxis, np.newaxis, np.newaxis, ...
+        channel_indices = md.arange(self.in_channels)[
+            md.newaxis, md.newaxis, md.newaxis, ...
         ]  # shape: (1, 1, 1, in_channels)
 
         # finally, actually index and return this
@@ -824,7 +821,7 @@ class MaxPooling2D(Layer):
 
         # the gradient for every element that is not the max is zeroed out, this is kind of
         # like a blank canvas before we paint on the gradients
-        zeros = np.zeros(in_shape)
+        zeros = md.zeros(in_shape)
         flattened_grad = grad.reshape((batch_size, 1, -1, self.in_channels))
 
         # similar to forward function, just assigning at these indices instead
@@ -871,7 +868,7 @@ class MeanPooling2D(Layer):
         # transform inputs into column vectors of patches
         as_cols = inputs[:, row_indices, col_indices, :]
 
-        averaged = np.mean(as_cols, axis=1, keepdims=True)
+        averaged = md.mean(as_cols, axis=1, keepdims=True)
         return averaged.reshape(out_shape)
 
     def backward(self, grad):
@@ -880,7 +877,7 @@ class MeanPooling2D(Layer):
         flattened_grad = grad.reshape(
             (batch_size, 1, grad_height * grad_width, self.in_channels)
         )
-        grad_wrt_x = np.zeros((batch_size, *self.in_dims, self.in_channels))
+        grad_wrt_x = md.zeros((batch_size, *self.in_dims, self.in_channels))
         row_indices, col_indices = self.forward_indices
         grad_wrt_x[:, row_indices, col_indices, :] = flattened_grad / (
             self.pool_size * self.pool_size
