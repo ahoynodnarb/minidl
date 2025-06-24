@@ -24,5 +24,5 @@ def sample_correct(y_true: md.Tensor, y_pred: md.Tensor) -> int:
 
 def shuffle_dataset(data: md.Tensor, labels: md.Tensor) -> tuple[md.Tensor, md.Tensor]:
     indices = md.arange(len(data))
-    md.random.shuffle(indices)
+    md.shuffle(indices)
     return (data[indices], labels[indices])

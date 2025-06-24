@@ -21,8 +21,8 @@ class Linear(ActivationFunction):
 
 
 class Softmax(ActivationFunction):
-    def __init__(self, precompute_grad=False):
-        self.precompute_grad = precompute_grad
+    def __init__(self, use_logsoftmax=False):
+        self.use_logsoftmax = use_logsoftmax
 
     def __call__(self, x: md.Tensor) -> md.Tensor:
         # subtracting the maximum keeps the exponentiated values low
@@ -34,7 +34,7 @@ class Softmax(ActivationFunction):
     # computing the jacobian, used https://math.stackexchange.com/questions/2843505/derivative-of-softmax-without-cross-entropy
     def gradient(self, x: md.Tensor) -> md.Tensor:
         # summing up each row of the jacobian just gives this
-        if self.precompute_grad:
+        if self.use_logsoftmax:
             return md.ones(x.shape)
         values = self(x)
         return (values * (1 - values)).clip(1e-8, None)
@@ -42,7 +42,7 @@ class Softmax(ActivationFunction):
 
 class ReLU(ActivationFunction):
     def __call__(self, x: md.Tensor) -> md.Tensor:
-        return md.clip(x, 0, None)
+        return x.clip(0, None)
 
     def gradient(self, x: md.Tensor) -> md.Tensor:
         return md.where(x >= 0, 1, 0)
@@ -62,11 +62,11 @@ class LeakyReLU(ActivationFunction):
 
 class Sigmoid(ActivationFunction):
     def __call__(self, x: md.Tensor) -> md.Tensor:
-        x = md.clip(x, -500, 500)
+        x = x.clip(-500, 500)
         return 1 / (1 + md.exp(-x))
 
     def gradient(self, x: md.Tensor) -> md.Tensor:
-        x = md.clip(x, -500, 500)
+        x = x.clip(-500, 500)
         out = self(x)
         return out * (1 - out)
 

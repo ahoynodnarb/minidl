@@ -83,7 +83,7 @@ class NeuralNetwork:
     def backpropagate(self, grad):
         optimizer_idx = 0
         for layer in reversed(self.layers):
-            grad = md.clip(grad, -1.0, 1.0)
+            grad = grad.clip(-1.0, 1.0)
             old_grad = grad
             grad = layer.backward(grad)
             if not layer.trainable:

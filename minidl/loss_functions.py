@@ -16,8 +16,8 @@ class LossFunction:
 
 
 class CrossEntropy(LossFunction):
-    def __init__(self, precompute_grad=False, smoothing=0):
-        self.precompute_grad = precompute_grad
+    def __init__(self, use_logsoftmax=False, smoothing=0):
+        self.use_logsoftmax = use_logsoftmax
         self.smoothing = smoothing
 
     # y_true should be a one-hot vector
@@ -28,6 +28,13 @@ class CrossEntropy(LossFunction):
             raise ValueError("y_true and y_pred must have the same shape")
         n_classes = y_true.shape[-1]
         y_smoothed = (1 - self.smoothing) * y_true + (self.smoothing / n_classes)
+        if self.use_logsoftmax:
+            mx = md.max(y_pred, axis=-1, keepdims=True)
+            e = md.exp(y_pred - mx)
+            s = md.sum(e, axis=-1, keepdims=True)
+            # log-sum-exp take the log of the sum of the exponents shifted by the max, and then shift again later
+            lse = mx + md.log(s)
+            return -(y_smoothed * (y_pred - lse))
         # avoid division by 0
         y_pred = y_pred.clip(1e-8, None)
         # compute the one hot loss, reshape to match
@@ -39,7 +46,7 @@ class CrossEntropy(LossFunction):
         n_classes = y_true.shape[-1]
         y_smoothed = (1 - self.smoothing) * y_true + (self.smoothing / n_classes)
         # more numerically stable than -y_true / y_pred
-        if self.precompute_grad:
+        if self.use_logsoftmax:
             return (y_pred - y_smoothed) / len(y_smoothed)
         return -y_smoothed / y_pred
 

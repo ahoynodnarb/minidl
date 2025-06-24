@@ -213,8 +213,8 @@ class Dense(OptimizableLayer):
         # pre-transposing here so we don't have to later for calculations
         # note: should probably change this rng later, but I don't think it actually matters that much
         if self.weights is None:
-            scale = md.sqrt(2 / self.n_weights)
-            self.weights = scale * md.random.randn(self.n_weights, self.n_neurons)
+            scale = math.sqrt(2 / self.n_weights)
+            self.weights = scale * md.randn(self.n_weights, self.n_neurons)
         # store biases as row vector of size n_neurons
         if self.biases is None:
             self.biases = md.zeros((1, self.n_neurons))
@@ -269,7 +269,7 @@ class Dropout(Layer):
     def forward(self, inputs):
         if not self.trainable:
             return inputs
-        self.mask = md.random.binomial(1, 1 - self.p, inputs.shape)
+        self.mask = md.binomial(1, 1 - self.p, inputs.shape)
         if self.auto_scale:
             return self.mask * inputs / (1 - self.p)
         return self.mask * inputs
@@ -699,8 +699,8 @@ class Conv2D(OptimizableLayer):
         self.trainable = trainable
         if self.kernels is None:
             fan_in = self.kernel_height * self.kernel_width * self.in_channels
-            scale = md.sqrt(2.0 / fan_in)
-            self.kernels = scale * md.random.randn(
+            scale = math.sqrt(2.0 / fan_in)
+            self.kernels = scale * md.randn(
                 self.n_kernels,
                 self.kernel_height,
                 self.kernel_width,

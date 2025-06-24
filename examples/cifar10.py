@@ -1,24 +1,19 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
-
-from minidl.optimizers import AdamW
-from minidl.neural_networks import NeuralNetwork
-from minidl.loss_functions import CrossEntropy
-from minidl.layers import (
-    Dense,
-    ActivationLayer,
-    Dropout,
-    BatchNormalization,
-    MaxPooling2D,
-    Conv2D,
-    FlatteningLayer,
-)
-from minidl.activation_functions import ReLU, Softmax
-from minidl.optimizers import ReduceLROnPlateau
-
 import imgaug.augmenters as iaa
+import minidiff as md
+
+from minidl.activation_functions import ReLU
+from minidl.layers import (
+    ActivationLayer,
+    BatchNormalization,
+    Conv2D,
+    Dense,
+    Dropout,
+    FlatteningLayer,
+    MaxPooling2D,
+)
+from minidl.loss_functions import CrossEntropy
+from minidl.neural_networks import NeuralNetwork
+from minidl.optimizers import AdamW, ReduceLROnPlateau
 
 ONE_HOT_TO_PLAINTEXT = [
     "airplane",
@@ -50,17 +45,17 @@ def load_formatted_data(filenames):
 
     def convert_to_one_hot(labels, classes):
         n_labels = len(labels)
-        one_hot = np.zeros((n_labels, classes))
+        one_hot = md.zeros((n_labels, classes))
         one_hot[range(n_labels), labels] = 1
         return one_hot
 
     def format_images(images):
-        images = np.array(images).astype(np.float32) / 255.0
+        images = md.Tensor(images) / 255.0
         channel_length = 32 * 32
         red = images[:, :channel_length]
         green = images[:, channel_length : channel_length * 2]
         blue = images[:, channel_length * 2 : channel_length * 3]
-        channeled = np.stack((red, green, blue), axis=-1)
+        channeled = md.stack((red, green, blue), axis=-1)
         reshaped = channeled.reshape((-1, 32, 32, 3))
         return reshaped
 
@@ -85,8 +80,8 @@ def load_meta():
 
 
 def normalize_data(data):
-    means = np.array([0.49118418, 0.4825434, 0.44775498])
-    stds = np.array([0.2464881, 0.24259564, 0.26116827])
+    means = md.array([0.49118418, 0.4825434, 0.44775498])
+    stds = md.array([0.2464881, 0.24259564, 0.26116827])
     ret = (data - means) / stds
     return ret
 
@@ -108,7 +103,7 @@ def train(network: NeuralNetwork):
 
     parent_directory = "./examples/cifar-10-batches-py/"
     data_batch_files = [
-        os.path.join(parent_directory, f"data_batch_{x+1}") for x in range(5)
+        os.path.join(parent_directory, f"data_batch_{x + 1}") for x in range(5)
     ]
     augmentation = iaa.Sequential(
         [
@@ -144,7 +139,7 @@ if __name__ == "__main__":
     # optim = SGD(learning_rate=0.01, momentum=0.85)
     scheduler = ReduceLROnPlateau(optimizer=optim, factor=0.5, patience=3, min_lr=1e-6)
     # probably don't change dropout, increasing it gets too aggressive and the network stops learning midway through
-    cross_entropy = CrossEntropy(precompute_grad=True, smoothing=0.05)
+    cross_entropy = CrossEntropy(use_logsoftmax=True, smoothing=0.05)
     network = NeuralNetwork(loss_function=cross_entropy, optimizer=scheduler)
     network.set_layers(
         Conv2D(
@@ -189,7 +184,7 @@ if __name__ == "__main__":
         ActivationLayer(ReLU()),
         BatchNormalization(128),
         Dense(10, 128, l2_lambda=1e-4),
-        ActivationLayer(Softmax(precompute_grad=True)),
+        # ActivationLayer(Softmax(use_logsoftmax=True)),
     )
     # network.load_network("./examples/cifar10.npy")
     # test(network)
