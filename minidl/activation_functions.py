@@ -56,7 +56,8 @@ class LeakyReLU(ActivationFunction):
         self.alpha = alpha
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        return np.maximum(self.alpha * x, x)
+        scaled = self.alpha * x
+        return np.where(scaled >= x, scaled, x)
 
     def gradient(self, x: np.ndarray) -> np.ndarray:
         return np.where(x >= 0, 1, self.alpha)
