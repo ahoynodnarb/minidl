@@ -1,4 +1,5 @@
 import minidiff as md
+import math
 
 
 class LossFunction:
@@ -16,8 +17,8 @@ class LossFunction:
 
 
 class CrossEntropy(LossFunction):
-    def __init__(self, use_logsoftmax=False, smoothing=0):
-        self.use_logsoftmax = use_logsoftmax
+    def __init__(self, from_logits=False, smoothing=0):
+        self.from_logits = from_logits
         self.smoothing = smoothing
 
     # y_true should be a one-hot vector
@@ -28,7 +29,7 @@ class CrossEntropy(LossFunction):
             raise ValueError("y_true and y_pred must have the same shape")
         n_classes = y_true.shape[-1]
         y_smoothed = (1 - self.smoothing) * y_true + (self.smoothing / n_classes)
-        if self.use_logsoftmax:
+        if self.from_logits:
             mx = md.max(y_pred, axis=-1, keepdims=True)
             e = md.exp(y_pred - mx)
             s = md.sum(e, axis=-1, keepdims=True)
@@ -46,7 +47,7 @@ class CrossEntropy(LossFunction):
         n_classes = y_true.shape[-1]
         y_smoothed = (1 - self.smoothing) * y_true + (self.smoothing / n_classes)
         # more numerically stable than -y_true / y_pred
-        if self.use_logsoftmax:
+        if self.from_logits:
             return (y_pred - y_smoothed) / len(y_smoothed)
         return -y_smoothed / y_pred
 
@@ -82,7 +83,7 @@ class BinaryCrossEntropy(LossFunction):
         return total_correct
 
     def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor):
-        return self.total_correct(y_true, y_pred) / y_true
+        return self.total_correct(y_true, y_pred) / len(y_true)
 
 
 class MeanSquaredError(LossFunction):
@@ -91,10 +92,13 @@ class MeanSquaredError(LossFunction):
             raise ValueError("Empty ground truth array")
         if y_true.shape != y_pred.shape:
             raise ValueError("y_true and y_pred must have the same shape")
-        return md.mean(md.square(y_true - y_pred))
+        averaged_dims = tuple(range(1, y_true.ndim))
+        return md.mean(md.square(y_true - y_pred), axis=averaged_dims)
 
     def gradient(self, y_true: md.Tensor, y_pred: md.Tensor):
-        grad = 2 * (y_pred - y_true) / y_true.shape[0]
+        averaged_dims = tuple(range(1, y_true.ndim))
+        averaged_features = math.prod([y_true.shape[dim] for dim in averaged_dims])
+        grad = 2 * (y_pred - y_true) / averaged_features
         return grad
 
     def total_correct(self, y_true, y_pred, tolerance=0.1):

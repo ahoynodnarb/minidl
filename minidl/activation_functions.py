@@ -21,9 +21,6 @@ class Linear(ActivationFunction):
 
 
 class Softmax(ActivationFunction):
-    def __init__(self, use_logsoftmax=False):
-        self.use_logsoftmax = use_logsoftmax
-
     def __call__(self, x: md.Tensor) -> md.Tensor:
         # subtracting the maximum keeps the exponentiated values low
         # after doing the algebra, the results are the same
@@ -34,8 +31,6 @@ class Softmax(ActivationFunction):
     # computing the jacobian, used https://math.stackexchange.com/questions/2843505/derivative-of-softmax-without-cross-entropy
     def gradient(self, x: md.Tensor) -> md.Tensor:
         # summing up each row of the jacobian just gives this
-        if self.use_logsoftmax:
-            return md.ones(x.shape)
         values = self(x)
         return (values * (1 - values)).clip(1e-8, None)
 

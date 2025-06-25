@@ -75,7 +75,7 @@ def test_dataset_at_index(network, index):
 
 if __name__ == "__main__":
     network = NeuralNetwork(
-        loss_function=CrossEntropy(use_logsoftmax=True),
+        loss_function=CrossEntropy(from_logits=True),
         optimizer=SGD(learning_rate=0.001, beta=0.9),
     )
     network.set_layers(
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         # dropout layer to prevent overfitting, also outside the scope
         # finally, the output layer
         Dense(10, 1024, l2_lambda=1e-4),
-        # ActivationLayer(Softmax(use_logsoftmax=True)),
+        # ActivationLayer(Softmax(from_logits=True)),
     )
     # network.load_network("./examples/MNIST_Classifier.npy")
     # test_network(network)

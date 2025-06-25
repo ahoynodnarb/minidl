@@ -5,7 +5,6 @@ from minidl.layers import (
     BatchNormalization,
     Conv2D,
     Dense,
-    LayerNormalization,
     OptimizableLayer,
 )
 
@@ -301,81 +300,7 @@ def test_batchnorm_gradients():
     print("\n")
 
 
-def test_layernorm_gradients():
-    print("Testing LayerNorm...")
-
-    batch_size = 10
-    n_dimensions = 16
-    layernorm = LayerNormalization(n_dimensions)
-    layernorm.weights = 0.1 * md.randn(n_dimensions)
-    layernorm.biases = 0.1 * md.randn(n_dimensions)
-
-    test_input = md.randn(batch_size, 10, 10, 16)
-    target_output = md.randn(batch_size, 10, 10, 16)
-
-    def loss_function_weights(weights):
-        """Loss as function of batchnorm gammas"""
-        layernorm.weights = weights
-        output = layernorm.forward(test_input)
-        loss = md.sum((output - target_output) ** 2) / 2
-        return loss
-
-    def loss_function_biases(biases):
-        """Loss as function of batchnorm betas"""
-        layernorm.biases = biases
-        output = layernorm.forward(test_input)
-        loss = md.sum((output - target_output) ** 2) / 2
-        return loss
-
-    def loss_function_inputs(input_data):
-        """Loss as function of input"""
-        # print("loss called")
-        output = layernorm.forward(input_data)
-        loss = md.sum((output - target_output) ** 2) / 2
-        return loss
-
-    # gamma
-    test_grad_wrt_parameter(
-        layer=layernorm,
-        test_input=test_input,
-        target_output=target_output,
-        grad_wrt_param=layernorm.compute_grad_wrt_w,
-        loss_fun=loss_function_weights,
-        param=layernorm.weights,
-        param_name="weights",
-    )
-    print("\n")
-    # beta
-    test_grad_wrt_parameter(
-        layer=layernorm,
-        test_input=test_input,
-        target_output=target_output,
-        grad_wrt_param=layernorm.compute_grad_wrt_biases,
-        loss_fun=loss_function_biases,
-        param=layernorm.biases,
-        param_name="biases",
-    )
-    print("\n")
-    # inputs
-    test_grad_wrt_parameter(
-        layer=layernorm,
-        test_input=test_input,
-        target_output=target_output,
-        grad_wrt_param=layernorm.compute_grad_wrt_x,
-        loss_fun=loss_function_inputs,
-        param=test_input,
-        param_name="inputs",
-    )
-    print("\n")
-
-
 if __name__ == "__main__":
-    # Run the simple test first
-    # simple_gradient_check()
-    # print("\n")
-
-    # Then run the full test
     test_conv2d_gradients()
     test_dense_gradients()
-    test_layernorm_gradients()
     test_batchnorm_gradients()

@@ -283,70 +283,70 @@ class Dropout(Layer):
 
 
 # WIP
-class LayerNormalization(OptimizableLayer):
-    weights = Parameter()
-    biases = Parameter()
+# class LayerNormalization(OptimizableLayer):
+#     weights = Parameter()
+#     biases = Parameter()
 
-    def __init__(self, n_dimensions, epsilon=1e-3, **kwargs):
-        super().__init__(**kwargs)
-        self.n_dimensions = n_dimensions
-        self.epsilon = epsilon
+#     def __init__(self, n_dimensions, epsilon=1e-3, **kwargs):
+#         super().__init__(**kwargs)
+#         self.n_dimensions = n_dimensions
+#         self.epsilon = epsilon
 
-    def compute_grad_wrt_x(self, grad):
-        # Gradient through scaling (w) and normalization (z)
-        grad_z = grad * self.weights  # dy/dz = w
+#     def compute_grad_wrt_x(self, grad):
+#         # Gradient through scaling (w) and normalization (z)
+#         grad_z = grad * self.weights  # dy/dz = w
 
-        # Gradient through variance (σ²)
-        grad_var = (
-            md.sum(grad_z * self.shifted, axis=-1, keepdims=True)
-            * (-0.5)
-            * (self.inverse_std**3)
-        )
+#         # Gradient through variance (σ²)
+#         grad_var = (
+#             md.sum(grad_z * self.shifted, axis=-1, keepdims=True)
+#             * (-0.5)
+#             * (self.inverse_std**3)
+#         )
 
-        # Gradient through mean (μ)
-        grad_mean = md.sum(grad_z, axis=-1, keepdims=True) * (
-            -self.inverse_std
-        ) + grad_var * md.mean(-2 * self.shifted, axis=-1, keepdims=True)
+#         # Gradient through mean (μ)
+#         grad_mean = md.sum(grad_z, axis=-1, keepdims=True) * (
+#             -self.inverse_std
+#         ) + grad_var * md.mean(-2 * self.shifted, axis=-1, keepdims=True)
 
-        # Combine gradients
-        grad_wrt_x = (
-            (grad_z * self.inverse_std)
-            + (1 / self.n_dimensions) * grad_var * 2 * self.shifted
-            + (1 / self.n_dimensions) * grad_mean
-        )
-        return grad_wrt_x
+#         # Combine gradients
+#         grad_wrt_x = (
+#             (grad_z * self.inverse_std)
+#             + (1 / self.n_dimensions) * grad_var * 2 * self.shifted
+#             + (1 / self.n_dimensions) * grad_mean
+#         )
+#         return grad_wrt_x
 
-    @weights.grad
-    def compute_grad_wrt_w(self, grad):
-        summed_dims = tuple(range(grad.ndim - 1))
-        return md.sum(self.norm * grad, axis=summed_dims, keepdims=True)
+#     @weights.grad
+#     def compute_grad_wrt_w(self, grad):
+#         summed_dims = tuple(range(grad.ndim - 1))
+#         return md.sum(self.norm * grad, axis=summed_dims, keepdims=True)
 
-    @biases.grad
-    def compute_grad_wrt_biases(self, grad):
-        summed_dims = tuple(range(grad.ndim - 1))
-        return md.sum(grad, axis=summed_dims, keepdims=True)
+#     @biases.grad
+#     def compute_grad_wrt_biases(self, grad):
+#         summed_dims = tuple(range(grad.ndim - 1))
+#         return md.sum(grad, axis=summed_dims, keepdims=True)
 
-    def setup(self, trainable=True):
-        self.trainable = trainable
-        if self.weights is None:
-            self.weights = md.ones(self.n_dimensions)
-        if self.biases is None:
-            self.biases = md.zeros(self.n_dimensions)
+#     def setup(self, trainable=True):
+#         self.trainable = trainable
+#         if self.weights is None:
+#             self.weights = md.ones(self.n_dimensions)
+#         if self.biases is None:
+#             self.biases = md.zeros(self.n_dimensions)
 
-    # https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
-    def forward(self, inputs):
-        if self.trainable:
-            self.prev_outputs = inputs
-        means = md.mean(inputs, axis=-1, keepdims=True)
-        self.shifted = inputs - means
-        self.variance = md.sum(self.shifted**2, axis=-1, keepdims=True) + self.epsilon
-        self.inverse_std = self.variance**-0.5
-        self.norm = self.shifted * self.inverse_std
-        return self.norm * self.weights + self.biases
+#     # https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
+#     def forward(self, inputs):
+#         if self.trainable:
+#             self.prev_outputs = inputs
+#         means = md.mean(inputs, axis=-1, keepdims=True)
+#         self.shifted = inputs - means
+#         self.variance = md.sum(self.shifted**2, axis=-1, keepdims=True) + self.epsilon
+#         self.inverse_std = self.variance**-0.5
+#         self.norm = self.shifted * self.inverse_std
+#         return self.norm * self.weights + self.biases
 
-    def backward(self, grad):
-        grad_wrt_x = self.compute_grad_wrt_x(grad)
-        return grad_wrt_x
+#     def backward(self, grad):
+#         grad_wrt_x = self.compute_grad_wrt_x(grad)
+#         return grad_wrt_x
 
 
 # it can be difficult for the individual layers of a network to learn

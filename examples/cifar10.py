@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # optim = SGD(learning_rate=0.01, momentum=0.85)
     scheduler = ReduceLROnPlateau(optimizer=optim, factor=0.5, patience=3, min_lr=1e-6)
     # probably don't change dropout, increasing it gets too aggressive and the network stops learning midway through
-    cross_entropy = CrossEntropy(use_logsoftmax=True, smoothing=0.05)
+    cross_entropy = CrossEntropy(from_logits=True, smoothing=0.05)
     network = NeuralNetwork(loss_function=cross_entropy, optimizer=scheduler)
     network.set_layers(
         Conv2D(
@@ -184,7 +184,7 @@ if __name__ == "__main__":
         ActivationLayer(ReLU()),
         BatchNormalization(128),
         Dense(10, 128, l2_lambda=1e-4),
-        # ActivationLayer(Softmax(use_logsoftmax=True)),
+        # ActivationLayer(Softmax(from_logits=True)),
     )
     # network.load_network("./examples/cifar10.npy")
     # test(network)
