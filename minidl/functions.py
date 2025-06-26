@@ -676,7 +676,7 @@ class MeanPooling2D(ops.BinaryOpClass):
         return (compute_grad_wrt_x, None)
 
 
-class CrossEntropyLoss(ops.BinaryOpClass):
+class CrossEntropy(ops.BinaryOpClass):
     def __init__(
         self,
         y_true: md.Tensor,
@@ -708,7 +708,7 @@ class CrossEntropyLoss(ops.BinaryOpClass):
 
     def create_forward(self) -> mdt.BinaryFunc:
         # formula for cross entropy loss is sum(y_true * -log(y_pred))
-        def loss_func() -> md.Tensor:
+        def forward() -> md.Tensor:
             if self.from_logits:
                 lse = log_sum_exp(self.y_pred)
                 loss = -(self.y_true * (self.y_pred - lse))
@@ -717,14 +717,14 @@ class CrossEntropyLoss(ops.BinaryOpClass):
 
             return md.sum(loss, axis=-1, keepdims=True)
 
-        return loss_func
+        return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
         # partial derivative of cross entropy loss wrt to predictions is pretty easy to derive: -y_true / y_pred
         # if we want to precompute the gradient (using logsoftmax) the gradient calculation becomes (y_pred - y_true)
         # we just throw in the division by len(y_true) to make up for batching
         # precomputing the gradient (using logsoftmax) is just a lot more numerically stable since there's no risk of division by 0
-        def loss_gradient(grad) -> md.Tensor:
+        def compute_grad_wrt_x(grad) -> md.Tensor:
             # more numerically stable than -y_true / y_pred
             # don't need to sum these since they'll be automatically broadcasted in the backward pass
             if self.from_logits:
@@ -732,12 +732,12 @@ class CrossEntropyLoss(ops.BinaryOpClass):
             else:
                 loss_grad = grad * -self.y_true / self.y_pred
 
-            return md.broadcast_to(loss_grad, self.y_pred.shape)
+            return loss_grad
 
-        return (None, loss_gradient)
+        return (None, compute_grad_wrt_x)
 
 
-class BinaryCrossEntropyLoss(ops.BinaryOpClass):
+class BinaryCrossEntropy(ops.BinaryOpClass):
     def __init__(
         self,
         y_true: md.Tensor,
@@ -768,25 +768,33 @@ class BinaryCrossEntropyLoss(ops.BinaryOpClass):
         self.smoothing = smoothing
 
     def create_forward(self) -> mdt.BinaryFunc:
-        def loss_func() -> md.Tensor:
-            loss = -(
-                self.y_true * md.log(self.y_pred)
-                + (1 - self.y_true) * md.log(1 - self.y_pred)
-            )
+        def forward() -> md.Tensor:
+            if self.from_logits:
+                loss = (
+                    md.log(1 + md.exp(-self.y_pred)) + (1 - self.y_true) * self.y_pred
+                )
+            else:
+                loss = -(
+                    self.y_true * md.log(self.y_pred)
+                    + (1 - self.y_true) * md.log(1 - self.y_pred)
+                )
 
             return md.mean(loss, axis=-1, keepdims=True)
 
-        return loss_func
+        return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def loss_gradient(grad: md.Tensor) -> md.Tensor:
-            # extra term discourages confidently bad results
-            loss_grad = (
-                grad * (self.y_pred - self.y_true) / (self.y_pred * (1 - self.y_pred))
-            )
-            return md.broadcast_to(loss_grad, self.y_pred.shape)
+        def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
+            if self.from_logits:
+                loss_grad = -(self.y_true - self.y_pred)
+            else:
+                loss_grad = grad * -(
+                    (self.y_true - self.y_pred) / (self.y_pred * (1 - self.y_pred))
+                )
 
-        return (None, loss_gradient)
+            return loss_grad
+
+        return (None, compute_grad_wrt_x)
 
 
 exported_ops = [
@@ -812,13 +820,13 @@ exported_ops = [
         op_class=MeanPooling2D,
         casting=None,
     ),
-    cross_entropy_loss := ops.generate_op_func(
-        op_class=CrossEntropyLoss,
+    cross_entropy := ops.generate_op_func(
+        op_class=CrossEntropy,
         tensor_only=True,
         casting=None,
     ),
-    binary_cross_entropy_loss := ops.generate_op_func(
-        op_class=BinaryCrossEntropyLoss,
+    binary_cross_entropy := ops.generate_op_func(
+        op_class=BinaryCrossEntropy,
         tensor_only=True,
         casting=None,
     ),
