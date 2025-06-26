@@ -786,15 +786,34 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
         def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
             if self.from_logits:
-                loss_grad = -(self.y_true - self.y_pred)
+                loss_grad = grad * -(self.y_true - self.y_pred) / self.y_true.shape[-1]
             else:
                 loss_grad = grad * -(
                     (self.y_true - self.y_pred) / (self.y_pred * (1 - self.y_pred))
-                )
+                ) / self.y_true.shape[-1]
 
             return loss_grad
 
         return (None, compute_grad_wrt_x)
+    
+
+class MeanSquaredError(ops.BinaryOpClass):
+    def __init__(self, y_true: md.Tensor, y_pred: md.Tensor):
+        self.y_true = y_true
+        self.y_pred = y_pred
+
+    def create_forward(self) -> mdt.BinaryFunc:
+        def forward() -> md.Tensor:
+            return md.mean((self.y_true - self.y_pred)**2, axis=-1)
+        
+        return forward
+    
+    def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
+        def compute_grad_wrt_x() -> md.Tensor:
+            return 2 * (self.y_pred - self.y_true) / self.y_true.shape[-1]
+        
+        return (None, compute_grad_wrt_x)
+
 
 
 exported_ops = [
