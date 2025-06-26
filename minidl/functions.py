@@ -184,6 +184,7 @@ def calculate_im2col_indices(
     return (row_indices, col_indices)
 
 
+# layer functions
 class Convolve2D(ops.BinaryOpClass):
     # this transforms the input tensor into a tensor where the columns make up each window of the convolution
     # that way we can just perform a tensordot with the partially flattened kernels to simulate a convolution much faster
@@ -538,7 +539,6 @@ class MaxPooling2D(ops.BinaryOpClass):
     def precompute_window_offsets(
         self, out_height: int, out_width: int, stride: int
     ) -> Tuple[md.Tensor, md.Tensor]:
-
         # number of pools is just how many can fit in within the cropped area
         n_pools = out_height * out_width
 
@@ -676,6 +676,7 @@ class MeanPooling2D(ops.BinaryOpClass):
         return (compute_grad_wrt_x, None)
 
 
+# loss functions
 class CrossEntropy(ops.BinaryOpClass):
     def __init__(
         self,
@@ -788,14 +789,16 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
             if self.from_logits:
                 loss_grad = grad * -(self.y_true - self.y_pred) / self.y_true.shape[-1]
             else:
-                loss_grad = grad * -(
-                    (self.y_true - self.y_pred) / (self.y_pred * (1 - self.y_pred))
-                ) / self.y_true.shape[-1]
+                loss_grad = (
+                    grad
+                    * -((self.y_true - self.y_pred) / (self.y_pred * (1 - self.y_pred)))
+                    / self.y_true.shape[-1]
+                )
 
             return loss_grad
 
         return (None, compute_grad_wrt_x)
-    
+
 
 class MeanSquaredError(ops.BinaryOpClass):
     def __init__(self, y_true: md.Tensor, y_pred: md.Tensor):
@@ -804,16 +807,15 @@ class MeanSquaredError(ops.BinaryOpClass):
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward() -> md.Tensor:
-            return md.mean((self.y_true - self.y_pred)**2, axis=-1)
-        
+            return md.mean((self.y_true - self.y_pred) ** 2, axis=-1)
+
         return forward
-    
+
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
         def compute_grad_wrt_x() -> md.Tensor:
             return 2 * (self.y_pred - self.y_true) / self.y_true.shape[-1]
-        
-        return (None, compute_grad_wrt_x)
 
+        return (None, compute_grad_wrt_x)
 
 
 exported_ops = [
@@ -846,6 +848,11 @@ exported_ops = [
     ),
     binary_cross_entropy := ops.generate_op_func(
         op_class=BinaryCrossEntropy,
+        tensor_only=True,
+        casting=None,
+    ),
+    mean_squared_error := ops.generate_op_func(
+        op_class=MeanSquaredError,
         tensor_only=True,
         casting=None,
     ),
