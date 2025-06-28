@@ -1,6 +1,7 @@
 import math
 
 import minidiff as md
+from minidl import functions as F
 
 
 def add_padding(mat, padding=None):
@@ -431,6 +432,7 @@ class BatchNormalization(OptimizableLayer):
             self.beta = md.zeros(self.n_dimensions)
 
     def forward(self, inputs):
+        # return F.batchnormalize()
         normalized_dimensions = tuple(range(inputs.ndim - 1))
         if self.trainable:
             self.prev_outputs = inputs

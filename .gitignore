@@ -6,3 +6,4 @@ cifar-10-batches-py/
 **test**.py
 minidl.egg-info/
 dist/
+build/

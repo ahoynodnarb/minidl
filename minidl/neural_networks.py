@@ -3,7 +3,12 @@ from copy import deepcopy
 import minidiff as md
 from tqdm import tqdm
 
-from minidl.layers import OptimizableLayer
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import List
+
+from minidl.layers import OptimizableLayer, Layer
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler, Optimizer
 from minidl.utils.data import shuffle_dataset, split_batches
@@ -15,10 +20,10 @@ class NeuralNetwork:
     ):
         self.loss_function = loss_function
         self.optimizer = optimizer
-        self._layers = []
+        self._layers: List[Layer] = []
         self._trainable = trainable
         self.layers_setup = False
-        self.layer_optimizers = []
+        self.layer_optimizers: List[Optimizer] = []
 
     def __call__(self, inputs):
         return self.feed_forward(inputs)

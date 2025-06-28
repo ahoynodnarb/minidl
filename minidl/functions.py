@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import collections
+import collections.abc as abc
 import math
 from typing import Optional, Sequence, Tuple, Union
 
@@ -20,13 +20,13 @@ def log_sum_exp(x: md.Tensor) -> md.Tensor:
 
 
 def get_padded_edges(
-    padding: Union[int, float, Sequence[int]],
+    padding: Union[int, float, Tuple[int, int, int, int]],
 ) -> Tuple[int, int, int, int]:
     # padding is already a tuple
-    if isinstance(padding, collections.Sequence):
+    if isinstance(padding, abc.Sequence):
         return padding
     # padding is an integer
-    if padding % 1 == 0:
+    if isinstance(padding, int):
         return (padding, padding, padding, padding)
     # padding is a float
     padding = int(math.floor(padding))
@@ -37,46 +37,24 @@ def get_padded_edges(
 
 
 @ops.unary_op_func(
-    grad=lambda a, grad, padding=None: Convolve2D.add_padding(grad, padding=padding),
-    propagate_kwargs=True,
-    casting=None,
-)
-def remove_padding(
-    mat: md.Tensor, padding: Optional[Union[int, float, Sequence[int]]] = None
-) -> md.Tensor:
-    _, height, width, _ = mat.shape
-
-    if (
-        padding is None
-        or (isinstance(padding, collections.Sequence) and sum(padding) == 0)
-        or padding == 0
-    ):
-        return mat
-
-    pad_top, pad_bottom, pad_left, pad_right = Convolve2D.get_padded_edges(padding)
-
-    # return view of padded matrix cropped around the padded boundaries
-    return mat[:, pad_top : height - pad_bottom, pad_left : width - pad_right, :]
-
-
-@ops.unary_op_func(
-    grad=lambda a, grad, padding=None: Convolve2D.remove_padding(grad, padding=padding),
+    grad=lambda a, grad, padding=None: remove_padding(grad, padding=padding),
     propagate_kwargs=True,
     casting=None,
 )
 def add_padding(
-    mat: md.Tensor, padding: Optional[Union[int, float, Sequence[int]]] = None
+    mat: md.Tensor,
+    padding: Optional[Tuple[int, int, int, int]] = None,
 ) -> md.Tensor:
     batch_size, height, width, channels = mat.shape
 
     if (
         padding is None
-        or (isinstance(padding, collections.Sequence) and sum(padding) == 0)
+        or (isinstance(padding, abc.Sequence) and sum(padding) == 0)
         or padding == 0
     ):
         return mat
 
-    pad_top, pad_bottom, pad_left, pad_right = Convolve2D.get_padded_edges(padding)
+    pad_top, pad_bottom, pad_left, pad_right = padding
 
     padded = md.zeros(
         (
@@ -91,6 +69,30 @@ def add_padding(
     return padded
 
 
+@ops.unary_op_func(
+    grad=lambda a, grad, padding=None: add_padding(grad, padding=padding),
+    propagate_kwargs=True,
+    casting=None,
+)
+def remove_padding(
+    mat: md.Tensor,
+    padding: Optional[Tuple[int, int, int, int]] = None,
+) -> md.Tensor:
+    _, height, width, _ = mat.shape
+
+    if (
+        padding is None
+        or (isinstance(padding, abc.Sequence) and sum(padding) == 0)
+        or padding == 0
+    ):
+        return mat
+
+    pad_top, pad_bottom, pad_left, pad_right = padding
+
+    # return view of padded matrix cropped around the padded boundaries
+    return mat[:, pad_top : height - pad_bottom, pad_left : width - pad_right, :]
+
+
 def calculate_same_padding(
     height: int, width: int, kernel_height: int, kernel_width: int, stride: int
 ) -> Tuple[int, int, int, int]:
@@ -98,14 +100,14 @@ def calculate_same_padding(
     pad_hori = (width * (stride - 1) + kernel_width - stride) / 2
 
     # we can evenly pad vertically
-    if pad_vert % 1 == 0:
+    if isinstance(pad_vert, int):
         pad_top = pad_bottom = pad_vert
     else:
         pad_vert = int(math.floor(pad_vert))
         pad_top, pad_bottom = pad_vert, pad_vert + 1
 
     # we can evenly pad horizontally
-    if pad_hori % 1 == 0:
+    if isinstance(pad_hori, int):
         pad_left = pad_right = pad_hori
     else:
         pad_hori = int(math.floor(pad_hori))
@@ -118,23 +120,18 @@ def calculate_same_padding(
 def calculate_full_padding(
     kernel_height: int,
     kernel_width: int,
-    original_padding: Union[int, float, Sequence[int]],
+    original_padding: Tuple[int, int, int, int],
 ) -> Tuple[int, int, int, int]:
     pad_top = kernel_height - 1
     pad_bottom = kernel_height - 1
     pad_left = kernel_width - 1
     pad_right = kernel_width - 1
-    if isinstance(original_padding, collections.Sequence):
-        o_top, o_bottom, o_left, o_right = original_padding
-        pad_top -= o_top
-        pad_bottom -= o_bottom
-        pad_left -= o_left
-        pad_right -= o_right
-    else:
-        pad_top -= original_padding
-        pad_bottom -= original_padding
-        pad_left -= original_padding
-        pad_right -= original_padding
+
+    o_top, o_bottom, o_left, o_right = original_padding
+    pad_top -= o_top
+    pad_bottom -= o_bottom
+    pad_left -= o_left
+    pad_right -= o_right
     return (pad_top, pad_bottom, pad_left, pad_right)
 
 
@@ -144,16 +141,15 @@ def calculate_convolved_dimensions(
     width: int,
     kernel_height: int,
     kernel_width: int,
-    padding: Union[int, float, Sequence[int]],
     stride: int,
+    padding: Optional[Tuple[int, int, int, int]] = None,
 ) -> Tuple[int, int]:
-    if isinstance(padding, collections.Sequence):
-        top, bottom, left, right = padding
-        vertical_padding = top + bottom
-        horizontal_padding = left + right
+    if padding is None:
+        top = bottom = left = right = 0
     else:
-        vertical_padding = int(2 * padding)
-        horizontal_padding = int(2 * padding)
+        top, bottom, left, right = padding
+    vertical_padding = top + bottom
+    horizontal_padding = left + right
 
     out_height = (height - kernel_height + vertical_padding) // stride + 1
     out_width = (width - kernel_width + horizontal_padding) // stride + 1
@@ -192,17 +188,22 @@ class Convolve2D(ops.BinaryOpClass):
     def perform_convolution(
         mat: md.Tensor,
         kernels: md.Tensor,
-        padding: Optional[Union[int, float, Sequence[int]]] = None,
+        padding: Optional[Tuple[int, int, int, int]] = None,
         stride: int = 1,
-        im2col_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-        out_dims: Optional[Sequence[int]] = None,
+        im2col_indices: Optional[Tuple[md.Tensor[int], md.Tensor[int]]] = None,
+        out_dims: Optional[Tuple[int, int]] = None,
     ) -> md.Tensor:
         orig_shape = mat.shape
         batch_size, orig_height, orig_width, _ = orig_shape
         n_kernels, kernel_height, kernel_width, kernel_channels = kernels.shape
         if out_dims is None:
             out_dims = calculate_convolved_dimensions(
-                orig_height, orig_width, kernel_height, kernel_width, padding, stride
+                orig_height,
+                orig_width,
+                kernel_height,
+                kernel_width,
+                stride,
+                padding=padding,
             )
 
         # out_dims is the "physical" dimension of the out matrix,
@@ -239,7 +240,7 @@ class Convolve2D(ops.BinaryOpClass):
         self,
         conv_input: md.Tensor,
         kernels: md.Tensor,
-        padding: Union[int, float, Sequence[int]] = 0,
+        padding: Union[int, float, Tuple[int, int, int, int]] = 0,
         stride: int = 1,
         forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
@@ -247,11 +248,9 @@ class Convolve2D(ops.BinaryOpClass):
     ):
         _, in_height, in_width, self.in_channels = conv_input.shape
         self.n_kernels, self.kernel_height, self.kernel_width, _ = kernels.shape
+        padding = get_padded_edges(padding)
+        pad_top, pad_bottom, pad_left, pad_right = padding
 
-        if isinstance(padding, collections.Sequence):
-            pad_top, pad_bottom, pad_left, pad_right = padding
-        else:
-            pad_top = pad_bottom = pad_left = pad_right = padding
         if (in_height - self.kernel_height + pad_top + pad_bottom) % stride != 0:
             raise ValueError("Cannot evenly convolve")
         if (in_height - self.kernel_width + pad_left + pad_right) % stride != 0:
@@ -261,6 +260,17 @@ class Convolve2D(ops.BinaryOpClass):
         self.kernels = kernels
         self.padding = padding
         self.stride = stride
+        # we need to keep track of the shape of the inputs and outputs so we do not
+        # have to recalculate them for every single batch
+        self.in_dims = (in_height, in_width)
+        self.out_dims = calculate_convolved_dimensions(
+            in_height,
+            in_width,
+            self.kernel_height,
+            self.kernel_width,
+            stride,
+            padding=padding,
+        )
         # we optimize the actual convolution as a large matrix multiplication
         # and we keep track of how the matrices need to be rearranged for that
         # matrix multiplication, also so we don't have to recompute it for each batch
@@ -279,12 +289,6 @@ class Convolve2D(ops.BinaryOpClass):
         self.forward_indices = forward_indices
         self.backward_input_indices = backward_input_indices
         self.backward_kern_indices = backward_kern_indices
-        # we need to keep track of the shape of the inputs and outputs so we do not
-        # have to recalculate them for every single batch
-        self.in_dims = (in_height, in_width)
-        self.out_dims = calculate_convolved_dimensions(
-            in_height, in_width, self.kernel_height, self.kernel_width, padding, stride
-        )
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward() -> md.Tensor:
@@ -404,14 +408,13 @@ class BatchNormalization(ops.TernaryOpClass):
         self.epsilon = epsilon
         self.momentum = momentum
         self.trainable = trainable
+        self.n_dimensions = inputs.shape[-1]
         if moving_means is None:
             moving_means = md.zeros(self.n_dimensions)
         if moving_variances is None:
             moving_variances = md.ones(self.n_dimensions)
         self.moving_means = moving_means
         self.moving_variances = moving_variances
-
-        self.n_dimensions = inputs.shape[-1]
 
     def create_forward(self) -> mdt.TernaryFunc:
         def forward() -> md.Tensor:
@@ -522,7 +525,7 @@ class MaxPooling2D(ops.BinaryOpClass):
         _, in_height, in_width, in_channels = inputs.shape
         self.in_dims = (in_height, in_width)
         self.out_dims = calculate_convolved_dimensions(
-            in_height, in_width, pool_size, pool_size, 0, stride
+            in_height, in_width, pool_size, pool_size, stride
         )
 
         self.in_channels = in_channels
@@ -632,7 +635,7 @@ class MeanPooling2D(ops.BinaryOpClass):
 
         self.in_dims = (in_height, in_width)
         self.out_dims = calculate_convolved_dimensions(
-            in_height, in_width, pool_size, pool_size, 0, stride
+            in_height, in_width, pool_size, pool_size, stride
         )
 
         self.in_channels = in_channels
@@ -694,9 +697,7 @@ class CrossEntropy(ops.BinaryOpClass):
             self.y_true = y_true
         else:
             n_classes = self.y_true.shape[-1]
-            self.y_true = (1 - self.smoothing) * self.y_true + (
-                self.smoothing / n_classes
-            )
+            self.y_true = (1 - smoothing) * self.y_true + (smoothing / n_classes)
 
         if from_logits:
             self.y_pred = y_pred
@@ -705,7 +706,6 @@ class CrossEntropy(ops.BinaryOpClass):
             self.y_pred = self.y_pred.clip(1e-8, None)
 
         self.from_logits = from_logits
-        self.smoothing = smoothing
 
     def create_forward(self) -> mdt.BinaryFunc:
         # formula for cross entropy loss is sum(y_true * -log(y_pred))
@@ -755,9 +755,7 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
             self.y_true = y_true
         else:
             n_classes = self.y_true.shape[-1]
-            self.y_true = (1 - self.smoothing) * self.y_true + (
-                self.smoothing / n_classes
-            )
+            self.y_true = (1 - smoothing) * self.y_true + (smoothing / n_classes)
 
         if from_logits:
             self.y_pred = y_pred
@@ -766,7 +764,6 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
             self.y_pred = self.y_pred.clip(1e-8, None)
 
         self.from_logits = from_logits
-        self.smoothing = smoothing
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward() -> md.Tensor:
@@ -818,44 +815,43 @@ class MeanSquaredError(ops.BinaryOpClass):
         return (None, compute_grad_wrt_x)
 
 
-exported_ops = [
-    convolve2d := ops.generate_op_func(
-        op_class=Convolve2D,
-        tensor_only=True,
-        casting=None,
-    ),
-    dropout := ops.generate_op_func(
-        op_class=Dropout,
-        casting=None,
-    ),
-    batchnormalize := ops.generate_op_func(
-        op_class=BatchNormalization,
-        tensor_only=True,
-        casting=None,
-    ),
-    maxpool2d := ops.generate_op_func(
-        op_class=MaxPooling2D,
-        casting=None,
-    ),
-    meanpool2d := ops.generate_op_func(
-        op_class=MeanPooling2D,
-        casting=None,
-    ),
-    cross_entropy := ops.generate_op_func(
-        op_class=CrossEntropy,
-        tensor_only=True,
-        casting=None,
-    ),
-    binary_cross_entropy := ops.generate_op_func(
-        op_class=BinaryCrossEntropy,
-        tensor_only=True,
-        casting=None,
-    ),
-    mean_squared_error := ops.generate_op_func(
-        op_class=MeanSquaredError,
-        tensor_only=True,
-        casting=None,
-    ),
-]
+convolve2d = ops.generate_op_func(
+    op_class=Convolve2D,
+    tensor_only=True,
+)
+dropout = ops.generate_op_func(
+    op_class=Dropout,
+)
+batchnormalize = ops.generate_op_func(
+    op_class=BatchNormalization,
+    tensor_only=True,
+)
+maxpool2d = ops.generate_op_func(
+    op_class=MaxPooling2D,
+)
+meanpool2d = ops.generate_op_func(
+    op_class=MeanPooling2D,
+)
+cross_entropy = ops.generate_op_func(
+    op_class=CrossEntropy,
+    tensor_only=True,
+)
+binary_cross_entropy = ops.generate_op_func(
+    op_class=BinaryCrossEntropy,
+    tensor_only=True,
+)
+mean_squared_error = ops.generate_op_func(
+    op_class=MeanSquaredError,
+    tensor_only=True,
+)
 
-__all__ = get_exported_var_names(local_vars=dict(locals()), exported_vars=exported_ops)
+__all__ = [
+    "convolve2d",
+    "dropout",
+    "batchnormalize",
+    "maxpool2d",
+    "meanpool2d",
+    "cross_entropy",
+    "binary_cross_entropy",
+    "mean_squared_error",
+]
