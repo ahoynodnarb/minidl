@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import collections.abc as abc
 import math
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import minidiff as md
 import minidiff.ops as ops
 import minidiff.typing as mdt
-from minidiff.utils import get_exported_var_names
 
 
 def log_sum_exp(x: md.Tensor) -> md.Tensor:
@@ -453,13 +452,10 @@ class BatchNormalization(ops.TernaryOpClass):
             means_flat = self.means.reshape(-1)
             variances_flat = self.variances.reshape(-1)
 
-            self.moving_means = self.moving_means * self.momentum + means_flat * (
-                1 - self.momentum
-            )
-            self.moving_variances = (
-                self.moving_variances * self.momentum
-                + variances_flat * (1 - self.momentum)
-            )
+            self.moving_means *= self.momentum
+            self.moving_means += means_flat * (1 - self.momentum)
+            self.moving_variances *= self.momentum
+            self.moving_variances += variances_flat * (1 - self.momentum)
             return gamma_reshaped * self.x_hat + beta_reshaped
 
         return forward
@@ -815,34 +811,42 @@ class MeanSquaredError(ops.BinaryOpClass):
         return (None, compute_grad_wrt_x)
 
 
-convolve2d = ops.generate_op_func(
+convolve2d = ops.create_op_func(
     op_class=Convolve2D,
     tensor_only=True,
+    op_name="convolve2d",
 )
-dropout = ops.generate_op_func(
+dropout = ops.create_op_func(
     op_class=Dropout,
+    op_name="dropout",
 )
-batchnormalize = ops.generate_op_func(
+batchnormalize = ops.create_op_func(
     op_class=BatchNormalization,
     tensor_only=True,
+    op_name="batchnormalize",
 )
-maxpool2d = ops.generate_op_func(
+maxpool2d = ops.create_op_func(
     op_class=MaxPooling2D,
+    op_name="maxpool2d",
 )
-meanpool2d = ops.generate_op_func(
+meanpool2d = ops.create_op_func(
     op_class=MeanPooling2D,
+    op_name="meanpool2d",
 )
-cross_entropy = ops.generate_op_func(
+cross_entropy = ops.create_op_func(
     op_class=CrossEntropy,
     tensor_only=True,
+    op_name="cross_entropy",
 )
-binary_cross_entropy = ops.generate_op_func(
+binary_cross_entropy = ops.create_op_func(
     op_class=BinaryCrossEntropy,
     tensor_only=True,
+    op_name="binary_cross_entropy",
 )
-mean_squared_error = ops.generate_op_func(
+mean_squared_error = ops.create_op_func(
     op_class=MeanSquaredError,
     tensor_only=True,
+    op_name="mean_squared_error",
 )
 
 __all__ = [
