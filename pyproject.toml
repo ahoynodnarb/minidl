@@ -10,9 +10,3 @@ dependencies = [
 GPU = [
     "cupy",
 ]
-
-[tool.setuptools.package-data]
-"pkgname" = ["py.typed"]
-
-[tool.setuptools.packages.find]
-where = ["minidl"]

@@ -38,7 +38,6 @@ def get_padded_edges(
 @ops.unary_op_func(
     grad=lambda a, grad, padding=None: remove_padding(grad, padding=padding),
     propagate_kwargs=True,
-    casting=None,
 )
 def add_padding(
     mat: md.Tensor,
@@ -71,7 +70,6 @@ def add_padding(
 @ops.unary_op_func(
     grad=lambda a, grad, padding=None: add_padding(grad, padding=padding),
     propagate_kwargs=True,
-    casting=None,
 )
 def remove_padding(
     mat: md.Tensor,
