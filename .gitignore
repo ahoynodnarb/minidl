@@ -1,6 +1,7 @@
 __pycache__/
 MNIST/
 cifar-10-batches-py/
+.mypy_cache
 .DS_Store
 **.npy
 **test**.py
