@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import collections.abc as abc
 import math
-from typing import Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import minidiff as md
 import minidiff.ops as ops
@@ -181,13 +181,63 @@ def calculate_im2col_indices(
 
 # layer functions
 class Convolve2D(ops.BinaryOpClass):
-    # this transforms the input tensor into a tensor where the columns make up each window of the convolution
-    # that way we can just perform a tensordot with the partially flattened kernels to simulate a convolution much faster
+    def setup(
+        self,
+        conv_input: md.Tensor,
+        kernels: md.Tensor,
+        padding: Union[int, float, Tuple[int, int, int, int]] = 0,
+        stride: int = 1,
+        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+    ):
+        _, in_height, in_width, self.in_channels = conv_input.shape
+        self.n_kernels, self.kernel_height, self.kernel_width, _ = kernels.shape
+        padding = get_padded_edges(padding)
+        pad_top, pad_bottom, pad_left, pad_right = padding
+
+        if (in_height - self.kernel_height + pad_top + pad_bottom) % stride != 0:
+            raise ValueError("Cannot evenly convolve")
+        if (in_height - self.kernel_width + pad_left + pad_right) % stride != 0:
+            raise ValueError("Cannot evenly convolve")
+
+        self.padding = padding
+        self.stride = stride
+        # we need to keep track of the shape of the inputs and outputs so we do not
+        # have to recalculate them for every single batch
+        self.in_dims = (in_height, in_width)
+        self.out_dims = calculate_convolved_dimensions(
+            in_height,
+            in_width,
+            self.kernel_height,
+            self.kernel_width,
+            stride,
+            padding=padding,
+        )
+        # we optimize the actual convolution as a large matrix multiplication
+        # and we keep track of how the matrices need to be rearranged for that
+        # matrix multiplication, also so we don't have to recompute it for each batch
+        if forward_indices is None:
+            forward_indices = calculate_im2col_indices(
+                *self.out_dims, self.kernel_height, self.kernel_width, self.stride
+            )
+        if backward_input_indices is None:
+            backward_input_indices = calculate_im2col_indices(
+                *self.in_dims, self.kernel_height, self.kernel_width, self.stride
+            )
+        if backward_kern_indices is None:
+            backward_kern_indices = calculate_im2col_indices(
+                self.kernel_height, self.kernel_width, *self.out_dims, self.stride
+            )
+        self.forward_indices = forward_indices
+        self.backward_input_indices = backward_input_indices
+        self.backward_kern_indices = backward_kern_indices
+
     @staticmethod
     def perform_convolution(
         mat: md.Tensor,
         kernels: md.Tensor,
-        padding: Optional[Tuple[int, int, int, int]] = None,
+        padding: Optional[Union[int, float, Tuple[int, int, int, int]]] = None,
         stride: int = 1,
         im2col_indices: Optional[Tuple[md.Tensor[int], md.Tensor[int]]] = None,
         out_dims: Optional[Tuple[int, int]] = None,
@@ -235,65 +285,30 @@ class Convolve2D(ops.BinaryOpClass):
         reshaped = convolved.reshape(out_shape)
         return reshaped
 
-    def __init__(
-        self,
-        conv_input: md.Tensor,
-        kernels: md.Tensor,
-        padding: Union[int, float, Tuple[int, int, int, int]] = 0,
-        stride: int = 1,
-        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-        backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-        backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-    ):
-        _, in_height, in_width, self.in_channels = conv_input.shape
-        self.n_kernels, self.kernel_height, self.kernel_width, _ = kernels.shape
-        padding = get_padded_edges(padding)
-        pad_top, pad_bottom, pad_left, pad_right = padding
-
-        if (in_height - self.kernel_height + pad_top + pad_bottom) % stride != 0:
-            raise ValueError("Cannot evenly convolve")
-        if (in_height - self.kernel_width + pad_left + pad_right) % stride != 0:
-            raise ValueError("Cannot evenly convolve")
-
-        self.conv_input = conv_input
-        self.kernels = kernels
-        self.padding = padding
-        self.stride = stride
-        # we need to keep track of the shape of the inputs and outputs so we do not
-        # have to recalculate them for every single batch
-        self.in_dims = (in_height, in_width)
-        self.out_dims = calculate_convolved_dimensions(
-            in_height,
-            in_width,
-            self.kernel_height,
-            self.kernel_width,
-            stride,
-            padding=padding,
-        )
-        # we optimize the actual convolution as a large matrix multiplication
-        # and we keep track of how the matrices need to be rearranged for that
-        # matrix multiplication, also so we don't have to recompute it for each batch
-        if forward_indices is None:
-            forward_indices = calculate_im2col_indices(
-                *self.out_dims, self.kernel_height, self.kernel_width, self.stride
-            )
-        if backward_input_indices is None:
-            backward_input_indices = calculate_im2col_indices(
-                *self.in_dims, self.kernel_height, self.kernel_width, self.stride
-            )
-        if backward_kern_indices is None:
-            backward_kern_indices = calculate_im2col_indices(
-                self.kernel_height, self.kernel_width, *self.out_dims, self.stride
-            )
-        self.forward_indices = forward_indices
-        self.backward_input_indices = backward_input_indices
-        self.backward_kern_indices = backward_kern_indices
-
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
-            convolved = self.perform_convolution(
-                self.conv_input,
-                self.kernels,
+        def forward(
+            conv_input: md.Tensor,
+            kernels: md.Tensor,
+            padding: Union[int, float, Tuple[int, int, int, int]] = 0,
+            stride: int = 1,
+            # in_dims: Optional[Tuple[int, ...]] = None,
+            # out_dims: Optional[Tuple[int, ...]] = None,
+            forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        ) -> md.Tensor:
+            self.setup(
+                conv_input,
+                kernels,
+                padding=padding,
+                stride=stride,
+                forward_indices=forward_indices,
+                backward_input_indices=backward_input_indices,
+                backward_kern_indices=backward_kern_indices,
+            )
+            convolved = Convolve2D.perform_convolution(
+                conv_input,
+                kernels,
                 padding=self.padding,
                 stride=self.stride,
                 out_dims=self.out_dims,
@@ -304,18 +319,31 @@ class Convolve2D(ops.BinaryOpClass):
         return forward
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_x(
+            conv_input: md.Tensor,
+            kernels: md.Tensor,
+            grad: md.Tensor,
+            # padding: Union[int, float, Tuple[int, int, int, int]] = 0,
+            # stride: int = 1,
+            # in_dims: Optional[Tuple[int, ...]] = None,
+            # out_dims: Optional[Tuple[int, ...]] = None,
+            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            # backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            # backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        ) -> md.Tensor:
             # _, in_height, in_width, _ = self.conv_input.shape
             # rotate kernels, then swap axes to match up correctly
-            flipped_kernels = md.flip(md.flip(self.kernels, axis=1), axis=2)
+            # kernel_height, kernel_width = kernels.shape[1], kernels.shape[2]
+            # in_dims = (conv_input.shape[1], conv_input.shape[2])
+            flipped_kernels = md.flip(md.flip(kernels, axis=1), axis=2)
             flipped_kernels = md.swapaxes(flipped_kernels, -1, 0)
 
             full_padding = calculate_full_padding(
-                kernel_height=self.kernel_width,
-                kernel_width=self.kernel_height,
+                kernel_height=self.kernel_height,
+                kernel_width=self.kernel_width,
                 original_padding=self.padding,
             )
-            grad_wrt_x = self.perform_convolution(
+            grad_wrt_x = Convolve2D.perform_convolution(
                 grad,
                 flipped_kernels,
                 padding=full_padding,
@@ -330,14 +358,26 @@ class Convolve2D(ops.BinaryOpClass):
         # the gradient with respect to the weights (kernel) tells us how the loss function changes relative to
         # changes to each individual element of the kernel
         # the overall computation boils down to convolving each channel of the previous outputs by each channel of the gradient
-        def compute_grad_wrt_w(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_w(
+            conv_input: md.Tensor,
+            kernels: md.Tensor,
+            grad: md.Tensor,
+            # padding: Union[int, float, Tuple[int, int, int, int]] = 0,
+            # stride: int = 1,
+            # in_dims: Optional[Tuple[int, ...]] = None,
+            # out_dims: Optional[Tuple[int, ...]] = None,
+            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            # backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+            # backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        ) -> md.Tensor:
             # normally, computing grad_wrt_w requires you to do convolutions for each slice of the previous outputs
             # and each slice of the gradient. But we can take advantage of batching to instead treat each slice of
             # output as a separate entry to the batch, and each slice of the gradient as a separate "kernel"
             # this results in us having the same final convolution, just the slices end up as the channels instead
-            swapped_prev_outputs = md.swapaxes(self.conv_input, 0, -1)
+            # kernel_height, kernel_width = kernels.shape[1], kernels.shape[2]
+            swapped_prev_outputs = md.swapaxes(conv_input, 0, -1)
             swapped_grad = md.swapaxes(grad, 0, -1)
-            convolved = self.perform_convolution(
+            convolved = Convolve2D.perform_convolution(
                 swapped_prev_outputs,
                 swapped_grad,
                 padding=self.padding,
@@ -353,109 +393,120 @@ class Convolve2D(ops.BinaryOpClass):
 
 
 class Dropout(ops.BinaryOpClass):
-    def __init__(
-        self,
-        inputs: md.Tensor,
-        prob: float,
-        auto_scale: bool = True,
-        trainable: bool = False,
-    ):
-        self.inputs = inputs
-        self.prob = prob
-        self.auto_scale = auto_scale
-        self.trainable = trainable
-
-        self.mask = None
-
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
-            if not self.trainable:
-                return self.inputs
-            self.mask = md.binomial(1, 1 - self.prob, self.inputs.shape)
-            if self.auto_scale:
-                return self.mask * self.inputs / (1 - self.prob)
-            return self.mask * self.inputs
+        def forward(
+            inputs: md.Tensor,
+            prob: float,
+            auto_scale: bool = True,
+            trainable: bool = False,
+        ) -> md.Tensor:
+            if not trainable:
+                return inputs
+            self.mask = md.binomial(1, 1 - prob, inputs.shape)
+            if auto_scale:
+                return self.mask * inputs / (1 - prob)
+            return self.mask * inputs
 
         return forward
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
-        def grad_wrt_x(grad: md.Tensor) -> md.Tensor:
-            if not self.trainable:
+        def grad_wrt_x(
+            inputs: md.Tensor,
+            prob: float,
+            grad: md.Tensor,
+            auto_scale: bool = True,
+            trainable: bool = False,
+        ) -> md.Tensor:
+            if not trainable:
                 return grad
-            if self.auto_scale:
-                return self.mask * grad / (1 - self.prob)
+            if auto_scale:
+                return self.mask * grad / (1 - prob)
             return self.mask * grad
 
         return (grad_wrt_x, None)
 
 
 class BatchNormalization(ops.TernaryOpClass):
-    def __init__(
-        self,
-        inputs: md.Tensor,
-        gamma: md.Tensor,
-        beta: md.Tensor,
-        epsilon: float = 1e-3,
-        momentum: float = 0.99,
-        trainable: bool = False,
-        moving_means: Optional[md.Tensor] = None,
-        moving_variances: Optional[md.Tensor] = None,
-    ):
-        self.inputs = inputs
-        self.gamma = gamma
-        self.beta = beta
-        self.epsilon = epsilon
-        self.momentum = momentum
-        self.trainable = trainable
-        self.n_dimensions = inputs.shape[-1]
-        if moving_means is None:
-            moving_means = md.zeros(self.n_dimensions)
-        if moving_variances is None:
-            moving_variances = md.ones(self.n_dimensions)
-        self.moving_means = moving_means
-        self.moving_variances = moving_variances
+    # def setup(
+    #     self,
+    #     # inputs: md.Tensor,
+    #     # gamma: md.Tensor,
+    #     # beta: md.Tensor,
+    #     # epsilon: float = 1e-3,
+    #     # momentum: float = 0.99,
+    #     # trainable: bool = False,
+    #     moving_means: Optional[md.Tensor] = None,
+    #     moving_variances: Optional[md.Tensor] = None,
+    # ):
+    #     # self.inputs = inputs
+    #     # self.gamma = gamma
+    #     # self.beta = beta
+    #     # self.n_dimensions = inputs.shape[-1]
+    #     # self.epsilon = epsilon
+    #     # self.momentum = momentum
+    #     # self.trainable = trainable
+    #     if moving_means is None:
+    #         moving_means = md.zeros(self.n_dimensions)
+    #     if moving_variances is None:
+    #         moving_variances = md.ones(self.n_dimensions)
+    #     moving_means = moving_means
+    #     moving_variances = moving_variances
 
     def create_forward(self) -> mdt.TernaryFunc:
-        def forward() -> md.Tensor:
-            normalized_dimensions = tuple(range(self.inputs.ndim - 1))
-            dummy_dims = [1] * (len(self.inputs.shape) - 1)
-            gamma_reshaped = self.gamma.reshape((*dummy_dims, self.n_dimensions))
-            beta_reshaped = self.beta.reshape((*dummy_dims, self.n_dimensions))
+        def forward(
+            inputs: md.Tensor,
+            gamma: md.Tensor,
+            beta: md.Tensor,
+            epsilon: float = 1e-3,
+            momentum: float = 0.99,
+            trainable: bool = False,
+            moving_means: Optional[md.Tensor] = None,
+            moving_variances: Optional[md.Tensor] = None,
+        ) -> md.Tensor:
+            n_dimensions = inputs.shape[-1]
+            if moving_means is None:
+                moving_means = md.zeros(self.n_dimensions)
+            if moving_variances is None:
+                moving_variances = md.ones(self.n_dimensions)
 
-            if not self.trainable:
-                means_reshaped = self.moving_means.reshape(
-                    (*dummy_dims, self.n_dimensions)
-                )
-                variances_reshaped = self.moving_variances.reshape(
-                    (*dummy_dims, self.n_dimensions)
+            normalized_dimensions = tuple(range(inputs.ndim - 1))
+            dummy_dims = [1] * (len(inputs.shape) - 1)
+            gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
+            beta_reshaped = beta.reshape((*dummy_dims, n_dimensions))
+
+            if not trainable:
+                means_reshaped = moving_means.reshape((*dummy_dims, n_dimensions))
+                variances_reshaped = moving_variances.reshape(
+                    (*dummy_dims, n_dimensions)
                 )
 
-                normalized = (self.inputs - means_reshaped) / md.sqrt(
-                    variances_reshaped + self.epsilon
+                normalized = (inputs - means_reshaped) / md.sqrt(
+                    variances_reshaped + epsilon
                 )
 
                 return normalized * gamma_reshaped + beta_reshaped
 
-            self.means = md.mean(
-                self.inputs, axis=normalized_dimensions, keepdims=True
+            means = md.mean(
+                inputs, axis=normalized_dimensions, keepdims=True
             )  # returns mu for each dimension of input
-            self.mean_deviation = self.inputs - self.means
-            self.variances = md.mean(
+            self.mean_deviation = inputs - means
+            variances = md.mean(
                 md.square(self.mean_deviation),
                 axis=normalized_dimensions,
                 keepdims=True,
             )  # returns sigma^2 for each input
-            self.std_deviation = md.sqrt(self.variances + self.epsilon)
+            self.std_deviation = md.sqrt(variances + epsilon)
 
             self.x_hat = self.mean_deviation / self.std_deviation
 
-            means_flat = self.means.reshape(-1)
-            variances_flat = self.variances.reshape(-1)
+            means_flat = means.reshape(-1)
+            variances_flat = variances.reshape(-1)
 
-            self.moving_means *= self.momentum
-            self.moving_means += means_flat * (1 - self.momentum)
-            self.moving_variances *= self.momentum
-            self.moving_variances += variances_flat * (1 - self.momentum)
+            moving_means *= momentum
+            moving_means += means_flat * (1 - momentum)
+            moving_variances *= momentum
+            moving_variances += variances_flat * (1 - momentum)
+
             return gamma_reshaped * self.x_hat + beta_reshaped
 
         return forward
@@ -463,12 +514,14 @@ class BatchNormalization(ops.TernaryOpClass):
     def create_grads(
         self,
     ) -> Tuple[mdt.TernaryOpGrad, mdt.TernaryOpGrad, mdt.TernaryOpGrad]:
-        def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_x(
+            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+        ) -> md.Tensor:
             ndims = len(grad.shape)
             norm_axes = tuple(range(ndims - 1))  # (0, 1, 2) for images
             m = math.prod([grad.shape[axis] for axis in norm_axes])
 
-            gamma_reshaped = self.gamma.reshape((1,) * (ndims - 1) + (-1,))
+            gamma_reshaped = gamma.reshape((1,) * (ndims - 1) + (-1,))
 
             # dL/dx_hat
             grad_x_hat = grad * gamma_reshaped
@@ -500,11 +553,15 @@ class BatchNormalization(ops.TernaryOpClass):
 
             return grad_input
 
-        def compute_grad_wrt_gamma(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_gamma(
+            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+        ) -> md.Tensor:
             normalized_dimensions = tuple(range(grad.ndim - 1))
             return md.sum(grad * self.x_hat, axis=normalized_dimensions)
 
-        def compute_grad_wrt_beta(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_beta(
+            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+        ) -> md.Tensor:
             normalized_dimensions = tuple(range(grad.ndim - 1))
             return md.sum(grad, axis=normalized_dimensions)
 
@@ -512,30 +569,29 @@ class BatchNormalization(ops.TernaryOpClass):
 
 
 class MaxPooling2D(ops.BinaryOpClass):
-    def __init__(self, inputs: md.Tensor, pool_size: int, stride: Optional[int] = None):
-        self.inputs = inputs
-        self.pool_size = pool_size
-        if stride is None:
-            stride = pool_size
+    def setup(self, inputs: md.Tensor, pool_size: int, stride: Optional[int] = None):
+        # self.inputs = inputs
+        # self.pool_size = pool_size
+        self.stride = pool_size if stride is None else stride
 
-        _, in_height, in_width, in_channels = inputs.shape
+        _, in_height, in_width, _ = inputs.shape
         self.in_dims = (in_height, in_width)
         self.out_dims = calculate_convolved_dimensions(
-            in_height, in_width, pool_size, pool_size, stride
+            in_height, in_width, pool_size, pool_size, self.stride
         )
 
-        self.in_channels = in_channels
+        # self.in_channels = in_channels
 
         self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, stride
+            *self.out_dims, pool_size, pool_size, self.stride
         )
 
-        self.row_offset, self.col_offset = self.precompute_window_offsets(
-            *self.out_dims, stride
+        self.row_offset, self.col_offset = self.compute_window_offsets(
+            *self.out_dims, self.stride
         )
 
     # this entire function essentially just computes the top left corner of each patch
-    def precompute_window_offsets(
+    def compute_window_offsets(
         self, out_height: int, out_width: int, stride: int
     ) -> Tuple[md.Tensor, md.Tensor]:
         # number of pools is just how many can fit in within the cropped area
@@ -553,35 +609,42 @@ class MaxPooling2D(ops.BinaryOpClass):
         return (window_rows, window_cols)
 
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
-            batch_size, _, _, _ = self.inputs.shape
+        def forward(
+            inputs: md.Tensor,
+            pool_size: int,
+            stride: Optional[int] = None,
+        ) -> md.Tensor:
+            self.setup(inputs, pool_size, stride=stride)
 
-            out_shape = (batch_size, *self.out_dims, self.in_channels)
+            batch_size, _, _, in_channels = inputs.shape
 
             row_indices, col_indices = self.forward_indices
 
             # transform inputs into column vectors of patches
-            as_cols = self.inputs[:, row_indices, col_indices, :]
+            as_cols = inputs[:, row_indices, col_indices, :]
 
             flat_indices = md.argmax(as_cols, axis=1, keepdims=True)
 
+            # row_offset, col_offset = self.compute_window_offsets(
+            #     *self.out_dims, self.stride
+            # )
             # add precomputed offsets to the indices since flat_indices gives coordinates relative to individual patches.
             # but we need indices relative to the entire input matrix
-            row_max_indices = flat_indices // self.pool_size + self.row_offset
-            col_max_indices = flat_indices % self.pool_size + self.col_offset
+            row_max_indices = flat_indices // pool_size + self.row_offset
+            col_max_indices = flat_indices % pool_size + self.col_offset
 
             # need these indices as placeholders to correctly index
             batch_indices = md.arange(batch_size)[
                 ..., md.newaxis, md.newaxis, md.newaxis
             ]  # shape: (batch_size, 1, 1, 1)
-            channel_indices = md.arange(self.in_channels)[
+            channel_indices = md.arange(in_channels)[
                 md.newaxis, md.newaxis, md.newaxis, ...
             ]  # shape: (1, 1, 1, in_channels)
 
             # finally, actually index and return this
-            max_values = self.inputs[
+            max_values = inputs[
                 batch_indices, row_max_indices, col_max_indices, channel_indices
-            ].reshape(out_shape)
+            ].reshape(self.out_shape)
             self.prev_indices = (
                 batch_indices,
                 row_max_indices,
@@ -594,8 +657,16 @@ class MaxPooling2D(ops.BinaryOpClass):
         return forward
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
-        def compute_grad_wrt_x(self, grad: md.Tensor) -> md.Tensor:
-            batch_size, _, _, _ = self.inputs.shape
+        def compute_grad_wrt_x(
+            self,
+            inputs: md.Tensor,
+            pool_size: int,
+            grad: md.Tensor,
+            # stride: Optional[int] = None,
+            # out_dims: Optional[Tuple[int, ...]] = None,
+            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+        ) -> md.Tensor:
+            batch_size, _, _, in_channels = inputs.shape
 
             batch_indices, row_max_indices, col_max_indices, channel_indices = (
                 self.prev_indices
@@ -603,8 +674,8 @@ class MaxPooling2D(ops.BinaryOpClass):
 
             # the gradient for every element that is not the max is zeroed out, this is kind of
             # like a blank canvas before we paint on the gradients
-            zeros = md.zeros(self.in_shape)
-            flattened_grad = grad.reshape((batch_size, 1, -1, self.in_channels))
+            zeros = md.zeros_like(inputs)
+            flattened_grad = grad.reshape((batch_size, 1, -1, in_channels))
 
             # similar to forward function, just assigning at these indices instead
             # this is the "painting" step
@@ -618,40 +689,40 @@ class MaxPooling2D(ops.BinaryOpClass):
 
 
 class MeanPooling2D(ops.BinaryOpClass):
-    def __init__(
+    def setup(
         self,
         inputs: md.Tensor,
         pool_size: int,
         stride: Optional[int] = None,
     ):
-        self.inputs = inputs
-        _, in_height, in_width, in_channels = inputs.shape
-        if stride is None:
-            stride = pool_size
+        # self.inputs = inputs
+        _, in_height, in_width, _ = inputs.shape
+        self.stride = pool_size if stride is None else stride
 
         self.in_dims = (in_height, in_width)
         self.out_dims = calculate_convolved_dimensions(
-            in_height, in_width, pool_size, pool_size, stride
+            in_height, in_width, pool_size, pool_size, self.stride
         )
 
-        self.in_channels = in_channels
-        self.pool_size = pool_size
-        self.stride = stride
-
         self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, stride
+            *self.out_dims, pool_size, pool_size, self.stride
         )
 
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
-            batch_size = self.inputs.shape[0]
-            out_shape = (batch_size, *self.out_dims, self.in_channels)
-            self.prev_inputs = self.inputs
+        def forward(
+            inputs: md.Tensor,
+            pool_size: int,
+            stride: Optional[int] = None,
+        ) -> md.Tensor:
+            self.setup(inputs, pool_size, stride=stride)
+            batch_size, _, _, in_channels = inputs.shape
+
+            out_shape = (batch_size, *self.out_dims, in_channels)
 
             row_indices, col_indices = self.forward_indices
 
             # transform inputs into column vectors of patches
-            as_cols = self.inputs[:, row_indices, col_indices, :]
+            as_cols = inputs[:, row_indices, col_indices, :]
 
             averaged = md.mean(as_cols, axis=1, keepdims=True)
             return averaged.reshape(out_shape)
@@ -659,16 +730,20 @@ class MeanPooling2D(ops.BinaryOpClass):
         return forward
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
-        def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
-            batch_size, grad_height, grad_width, _ = grad.shape
+        def compute_grad_wrt_x(
+            inputs: md.Tensor,
+            pool_size: int,
+            grad: md.Tensor,
+        ) -> md.Tensor:
+            batch_size, grad_height, grad_width, in_channels = grad.shape
             # add the extra 1 so that indexing broadcasts for the entire patch
             flattened_grad = grad.reshape(
-                (batch_size, 1, grad_height * grad_width, self.in_channels)
+                (batch_size, 1, grad_height * grad_width, in_channels)
             )
-            grad_wrt_x = md.zeros((batch_size, *self.in_dims, self.in_channels))
+            grad_wrt_x = md.zeros_like(inputs)
             row_indices, col_indices = self.forward_indices
             grad_wrt_x[:, row_indices, col_indices, :] = flattened_grad / (
-                self.pool_size * self.pool_size
+                pool_size * pool_size
             )
             return grad_wrt_x
 
@@ -677,7 +752,7 @@ class MeanPooling2D(ops.BinaryOpClass):
 
 # loss functions
 class CrossEntropy(ops.BinaryOpClass):
-    def __init__(
+    def setup(
         self,
         y_true: md.Tensor,
         y_pred: md.Tensor,
@@ -705,7 +780,13 @@ class CrossEntropy(ops.BinaryOpClass):
 
     def create_forward(self) -> mdt.BinaryFunc:
         # formula for cross entropy loss is sum(y_true * -log(y_pred))
-        def forward() -> md.Tensor:
+        def forward(
+            y_true: md.Tensor,
+            y_pred: md.Tensor,
+            from_logits: bool = False,
+            smoothing: Union[int, float] = 0,
+        ) -> md.Tensor:
+            self.setup(y_true, y_pred, from_logits=from_logits, smoothing=smoothing)
             if self.from_logits:
                 lse = log_sum_exp(self.y_pred)
                 loss = -(self.y_true * (self.y_pred - lse))
@@ -735,7 +816,7 @@ class CrossEntropy(ops.BinaryOpClass):
 
 
 class BinaryCrossEntropy(ops.BinaryOpClass):
-    def __init__(
+    def setup(
         self,
         y_true: md.Tensor,
         y_pred: md.Tensor,
@@ -762,7 +843,13 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
         self.from_logits = from_logits
 
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
+        def forward(
+            y_true: md.Tensor,
+            y_pred: md.Tensor,
+            from_logits: bool = False,
+            smoothing: Union[int, float] = 0,
+        ) -> md.Tensor:
+            self.setup(y_true, y_pred, from_logits=from_logits, smoothing=smoothing)
             if self.from_logits:
                 loss = (
                     md.log(1 + md.exp(-self.y_pred)) + (1 - self.y_true) * self.y_pred
@@ -794,59 +881,68 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
 
 
 class MeanSquaredError(ops.BinaryOpClass):
-    def __init__(self, y_true: md.Tensor, y_pred: md.Tensor):
-        self.y_true = y_true
-        self.y_pred = y_pred
-
     def create_forward(self) -> mdt.BinaryFunc:
-        def forward() -> md.Tensor:
-            return md.mean((self.y_true - self.y_pred) ** 2, axis=-1)
+        def forward(y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
+            return md.mean((y_true - y_pred) ** 2, axis=-1)
 
         return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x() -> md.Tensor:
-            return 2 * (self.y_pred - self.y_true) / self.y_true.shape[-1]
+        def compute_grad_wrt_x(
+            y_true: md.Tensor, y_pred: md.Tensor, grad: md.Tensor
+        ) -> md.Tensor:
+            return grad * 2 * (y_pred - y_true) / y_true.shape[-1]
 
         return (None, compute_grad_wrt_x)
 
 
-convolve2d = ops.create_op_func(
-    op_class=Convolve2D,
-    tensor_only=True,
-    op_name="convolve2d",
+# convolve2d = ops.create_op_func(
+#     op_class=Convolve2D,
+#     tensor_only=True,
+#     op_name="convolve2d",
+# )
+convolve2d: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_stateful_op_func(
+    op_class=Convolve2D, tensor_only=True, op_name="convolve2d"
 )
-dropout = ops.create_op_func(
+dropout: Callable[[md.Tensor, float], md.Tensor] = ops.create_stateful_op_func(
     op_class=Dropout,
     op_name="dropout",
 )
-batchnormalize = ops.create_op_func(
-    op_class=BatchNormalization,
-    tensor_only=True,
-    op_name="batchnormalize",
+batchnormalize: Callable[[md.Tensor, md.Tensor, md.Tensor], md.Tensor] = (
+    ops.create_stateful_op_func(
+        op_class=BatchNormalization,
+        tensor_only=True,
+        op_name="batchnormalize",
+    )
 )
-maxpool2d = ops.create_op_func(
+maxpool2d: Callable[[md.Tensor, int], md.Tensor] = ops.create_stateful_op_func(
     op_class=MaxPooling2D,
     op_name="maxpool2d",
 )
-meanpool2d = ops.create_op_func(
+meanpool2d: Callable[[md.Tensor, int], md.Tensor] = ops.create_stateful_op_func(
     op_class=MeanPooling2D,
     op_name="meanpool2d",
 )
-cross_entropy = ops.create_op_func(
-    op_class=CrossEntropy,
-    tensor_only=True,
-    op_name="cross_entropy",
+cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
+    ops.create_stateful_op_func(
+        op_class=CrossEntropy,
+        tensor_only=True,
+        op_name="cross_entropy",
+    )
 )
-binary_cross_entropy = ops.create_op_func(
-    op_class=BinaryCrossEntropy,
-    tensor_only=True,
-    op_name="binary_cross_entropy",
+binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
+    ops.create_stateful_op_func(
+        op_class=BinaryCrossEntropy,
+        tensor_only=True,
+        op_name="binary_cross_entropy",
+    )
 )
-mean_squared_error = ops.create_op_func(
-    op_class=MeanSquaredError,
-    tensor_only=True,
-    op_name="mean_squared_error",
+mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
+    ops.create_stateful_op_func(
+        op_class=MeanSquaredError,
+        tensor_only=True,
+        op_name="mean_squared_error",
+    )
 )
 
 __all__ = [
