@@ -137,11 +137,6 @@ class NeuralNetwork:
                 train_data, train_labels
             )
             if aug_func is not None:
-                # if BACKEND == "cupy":
-                #     shuffled_train_data = np.array(
-                #         aug_func(np.asnumpy(shuffled_train_data))
-                #     )
-                # else:
                 shuffled_train_data = aug_func(shuffled_train_data)
 
             if norm_func is not None:

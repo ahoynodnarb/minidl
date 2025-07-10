@@ -1,7 +1,3 @@
-try:
-    import cupy as np  # type: ignore
-except ImportError:
-    import numpy as np
 import minidiff as md
 from mnist import MNIST
 
@@ -65,8 +61,7 @@ def test_dataset_at_index(network, index):
     pred = network(test_image / 255.0)
     print(f"prediction: {md.argmax(pred)}")
     print(f"actual: {test_label}")
-    cv_image = test_image.astype(np.uint8).reshape((28, 28))
-    # cv_image = np.asnumpy(test_image.astype(np.uint8).reshape((28, 28)))
+    cv_image = test_image.astype(md.uint8).reshape((28, 28))
 
     cv2.imshow(f"MNIST Test Dataset entry {index}", cv_image)
     cv2.waitKey(0)
