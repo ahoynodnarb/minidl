@@ -209,8 +209,8 @@ class Convolve2D(ops.BinaryOpClass):
             in_width,
             self.kernel_height,
             self.kernel_width,
-            stride,
-            padding=padding,
+            self.stride,
+            padding=self.padding,
         )
         # we optimize the actual convolution as a large matrix multiplication
         # and we keep track of how the matrices need to be rearranged for that
@@ -402,8 +402,8 @@ class Dropout(ops.BinaryOpClass):
                 return inputs
             self.mask = md.binomial(1, 1 - prob, inputs.shape)
             if auto_scale:
-                return self.mask * inputs / (1 - prob)
-            return self.mask * inputs
+                return md.where(self.mask == 0, 0, inputs / prob)
+            return md.where(self.mask == 0, 0, inputs)
 
         return forward
 
@@ -418,38 +418,13 @@ class Dropout(ops.BinaryOpClass):
             if not trainable:
                 return grad
             if auto_scale:
-                return self.mask * grad / (1 - prob)
-            return self.mask * grad
+                return md.where(self.mask == 0, 0, grad / prob)
+            return md.where(self.mask == 0, 0, grad)
 
         return (grad_wrt_x, None)
 
 
 class BatchNormalization(ops.TernaryOpClass):
-    # def setup(
-    #     self,
-    #     # inputs: md.Tensor,
-    #     # gamma: md.Tensor,
-    #     # beta: md.Tensor,
-    #     # epsilon: float = 1e-3,
-    #     # momentum: float = 0.99,
-    #     # trainable: bool = False,
-    #     moving_means: Optional[md.Tensor] = None,
-    #     moving_variances: Optional[md.Tensor] = None,
-    # ):
-    #     # self.inputs = inputs
-    #     # self.gamma = gamma
-    #     # self.beta = beta
-    #     # self.n_dimensions = inputs.shape[-1]
-    #     # self.epsilon = epsilon
-    #     # self.momentum = momentum
-    #     # self.trainable = trainable
-    #     if moving_means is None:
-    #         moving_means = md.zeros(self.n_dimensions)
-    #     if moving_variances is None:
-    #         moving_variances = md.ones(self.n_dimensions)
-    #     moving_means = moving_means
-    #     moving_variances = moving_variances
-
     def create_forward(self) -> mdt.TernaryFunc:
         def forward(
             inputs: md.Tensor,
@@ -462,10 +437,11 @@ class BatchNormalization(ops.TernaryOpClass):
             moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
             n_dimensions = inputs.shape[-1]
+
             if moving_means is None:
-                moving_means = md.zeros(self.n_dimensions)
+                moving_means = md.zeros(n_dimensions)
             if moving_variances is None:
-                moving_variances = md.ones(self.n_dimensions)
+                moving_variances = md.ones(n_dimensions)
 
             normalized_dimensions = tuple(range(inputs.ndim - 1))
             dummy_dims = [1] * (len(inputs.shape) - 1)
@@ -513,8 +489,30 @@ class BatchNormalization(ops.TernaryOpClass):
         self,
     ) -> Tuple[mdt.TernaryOpGrad, mdt.TernaryOpGrad, mdt.TernaryOpGrad]:
         def compute_grad_wrt_x(
-            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+            inputs: md.Tensor,
+            gamma: md.Tensor,
+            beta: md.Tensor,
+            grad: md.Tensor,
+            epsilon: float = 1e-3,
+            momentum: float = 0.99,
+            trainable: bool = False,
+            moving_means: Optional[md.Tensor] = None,
+            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
+            if not trainable:
+                n_dimensions = inputs.shape[-1]
+                if moving_variances is None:
+                    moving_variances = md.ones(n_dimensions)
+                dummy_dims = [1] * (len(inputs.shape) - 1)
+                gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
+                variances_reshaped = moving_variances.reshape(
+                    (*dummy_dims, n_dimensions)
+                )
+
+                normalized = 1 / md.sqrt(variances_reshaped + epsilon)
+
+                return grad * normalized * gamma_reshaped
+
             ndims = len(grad.shape)
             norm_axes = tuple(range(ndims - 1))  # (0, 1, 2) for images
             m = math.prod([grad.shape[axis] for axis in norm_axes])
@@ -552,15 +550,53 @@ class BatchNormalization(ops.TernaryOpClass):
             return grad_input
 
         def compute_grad_wrt_gamma(
-            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+            inputs: md.Tensor,
+            gamma: md.Tensor,
+            beta: md.Tensor,
+            grad: md.Tensor,
+            epsilon: float = 1e-3,
+            momentum: float = 0.99,
+            trainable: bool = False,
+            moving_means: Optional[md.Tensor] = None,
+            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
+            if not trainable:
+                n_dimensions = inputs.shape[-1]
+                if moving_variances is None:
+                    moving_variances = md.ones(n_dimensions)
+                if moving_means is None:
+                    moving_means = md.zeros(n_dimensions)
+
+                dummy_dims = [1] * (len(inputs.shape) - 1)
+                means_reshaped = moving_means.reshape((*dummy_dims, n_dimensions))
+                variances_reshaped = moving_variances.reshape(
+                    (*dummy_dims, n_dimensions)
+                )
+
+                normalized = (inputs - means_reshaped) / md.sqrt(
+                    variances_reshaped + epsilon
+                )
+                return grad * normalized
+
             normalized_dimensions = tuple(range(grad.ndim - 1))
             return md.sum(grad * self.x_hat, axis=normalized_dimensions)
 
         def compute_grad_wrt_beta(
-            inputs: md.Tensor, gamma: md.Tensor, beta: md.Tensor, grad: md.Tensor
+            inputs: md.Tensor,
+            gamma: md.Tensor,
+            beta: md.Tensor,
+            grad: md.Tensor,
+            epsilon: float = 1e-3,
+            momentum: float = 0.99,
+            trainable: bool = False,
+            moving_means: Optional[md.Tensor] = None,
+            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
+
             normalized_dimensions = tuple(range(grad.ndim - 1))
+            if not trainable:
+                return md.sum(grad, axis=normalized_dimensions, keepdims=True)
+
             return md.sum(grad, axis=normalized_dimensions)
 
         return (compute_grad_wrt_x, compute_grad_wrt_gamma, compute_grad_wrt_beta)
@@ -639,10 +675,11 @@ class MaxPooling2D(ops.BinaryOpClass):
                 md.newaxis, md.newaxis, md.newaxis, ...
             ]  # shape: (1, 1, 1, in_channels)
 
+            out_shape = (batch_size, *self.out_dims, in_channels)
             # finally, actually index and return this
             max_values = inputs[
                 batch_indices, row_max_indices, col_max_indices, channel_indices
-            ].reshape(self.out_shape)
+            ].reshape(out_shape)
             self.prev_indices = (
                 batch_indices,
                 row_max_indices,
@@ -656,7 +693,6 @@ class MaxPooling2D(ops.BinaryOpClass):
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
         def compute_grad_wrt_x(
-            self,
             inputs: md.Tensor,
             pool_size: int,
             grad: md.Tensor,
@@ -894,11 +930,6 @@ class MeanSquaredError(ops.BinaryOpClass):
         return (None, compute_grad_wrt_x)
 
 
-# convolve2d = ops.create_op_func(
-#     op_class=Convolve2D,
-#     tensor_only=True,
-#     op_name="convolve2d",
-# )
 convolve2d: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_stateful_op_func(
     op_class=Convolve2D, tensor_only=True, op_name="convolve2d"
 )
@@ -909,6 +940,7 @@ dropout: Callable[[md.Tensor, float], md.Tensor] = ops.create_stateful_op_func(
 batchnormalize: Callable[[md.Tensor, md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_stateful_op_func(
         op_class=BatchNormalization,
+        propagate_kwargs=True,
         tensor_only=True,
         op_name="batchnormalize",
     )

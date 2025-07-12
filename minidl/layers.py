@@ -283,73 +283,6 @@ class Dropout(Layer):
         return self.mask * grad
 
 
-# WIP
-# class LayerNormalization(OptimizableLayer):
-#     weights = Parameter()
-#     biases = Parameter()
-
-#     def __init__(self, n_dimensions, epsilon=1e-3, **kwargs):
-#         super().__init__(**kwargs)
-#         self.n_dimensions = n_dimensions
-#         self.epsilon = epsilon
-
-#     def compute_grad_wrt_x(self, grad):
-#         # Gradient through scaling (w) and normalization (z)
-#         grad_z = grad * self.weights  # dy/dz = w
-
-#         # Gradient through variance (σ²)
-#         grad_var = (
-#             md.sum(grad_z * self.shifted, axis=-1, keepdims=True)
-#             * (-0.5)
-#             * (self.inverse_std**3)
-#         )
-
-#         # Gradient through mean (μ)
-#         grad_mean = md.sum(grad_z, axis=-1, keepdims=True) * (
-#             -self.inverse_std
-#         ) + grad_var * md.mean(-2 * self.shifted, axis=-1, keepdims=True)
-
-#         # Combine gradients
-#         grad_wrt_x = (
-#             (grad_z * self.inverse_std)
-#             + (1 / self.n_dimensions) * grad_var * 2 * self.shifted
-#             + (1 / self.n_dimensions) * grad_mean
-#         )
-#         return grad_wrt_x
-
-#     @weights.grad
-#     def compute_grad_wrt_w(self, grad):
-#         summed_dims = tuple(range(grad.ndim - 1))
-#         return md.sum(self.norm * grad, axis=summed_dims, keepdims=True)
-
-#     @biases.grad
-#     def compute_grad_wrt_biases(self, grad):
-#         summed_dims = tuple(range(grad.ndim - 1))
-#         return md.sum(grad, axis=summed_dims, keepdims=True)
-
-#     def setup(self, trainable=True):
-#         self.trainable = trainable
-#         if self.weights is None:
-#             self.weights = md.ones(self.n_dimensions)
-#         if self.biases is None:
-#             self.biases = md.zeros(self.n_dimensions)
-
-#     # https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
-#     def forward(self, inputs):
-#         if self.trainable:
-#             self.prev_outputs = inputs
-#         means = md.mean(inputs, axis=-1, keepdims=True)
-#         self.shifted = inputs - means
-#         self.variance = md.sum(self.shifted**2, axis=-1, keepdims=True) + self.epsilon
-#         self.inverse_std = self.variance**-0.5
-#         self.norm = self.shifted * self.inverse_std
-#         return self.norm * self.weights + self.biases
-
-#     def backward(self, grad):
-#         grad_wrt_x = self.compute_grad_wrt_x(grad)
-#         return grad_wrt_x
-
-
 # it can be difficult for the individual layers of a network to learn
 # if its inputs are kind of all over the place. the BatchNormalization layer
 # attempts to normalize all the inputs throughout a batch to have a mean of 0
@@ -582,7 +515,6 @@ def calculate_im2col_indices(rows_out, cols_out, kernel_height, kernel_width, st
 # and output another image containing different image features
 class Conv2D(OptimizableLayer):
     kernels = Parameter()
-    biases = Parameter()
 
     def __init__(
         self,
@@ -684,17 +616,11 @@ class Conv2D(OptimizableLayer):
 
         return grad_wrt_w
 
-    @biases.grad
-    def compute_grad_wrt_biases(self, grad):
-        return md.sum(grad, axis=0, keepdims=True)
-
     def save_layer(self, fstream):
         md.save(fstream, self.kernels)
-        md.save(fstream, self.biases)
 
     def load_layer(self, fstream):
         self.kernels = md.load(fstream)
-        self.biases = md.load(fstream)
 
     def setup(self, trainable=True):
         self.trainable = trainable
@@ -707,8 +633,6 @@ class Conv2D(OptimizableLayer):
                 self.kernel_width,
                 self.in_channels,
             )
-        if self.biases is None:
-            self.biases = md.zeros(self.n_kernels)
 
     # accepts two dimensional image, outputs 2 dimensional image
     def forward(self, inputs):
@@ -722,7 +646,7 @@ class Conv2D(OptimizableLayer):
             out_dims=self.out_dims,
             im2col_indices=self.forward_indices,
         )
-        return convolved + self.biases
+        return convolved
 
     # assumes the gradient has the same shape as out_shape
     def backward(self, grad):

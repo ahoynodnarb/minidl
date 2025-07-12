@@ -170,7 +170,6 @@ def test_conv2d_gradients():
 
     # Initialize with small random weights for stability
     conv.kernels = 0.1 * md.randn(3, 3, 3, 2)  # (n_kernels, h, w, in_channels)
-    conv.biases = 0.1 * md.randn(4, 4, 3)  # (out_h, out_w, n_kernels)
 
     # Create small test input and target
     batch_size = 10
@@ -180,13 +179,6 @@ def test_conv2d_gradients():
     def loss_function_kernels(kernels):
         """Loss as function of kernel weights"""
         conv.kernels = kernels
-        output = conv.forward(test_input)
-        loss = md.sum((output - target_output) ** 2) / 2
-        return loss
-
-    def loss_function_biases(biases):
-        """Loss as function of kernel biases"""
-        conv.biases = biases
         output = conv.forward(test_input)
         loss = md.sum((output - target_output) ** 2) / 2
         return loss
@@ -206,17 +198,6 @@ def test_conv2d_gradients():
         loss_fun=loss_function_kernels,
         param=conv.kernels,
         param_name="kernels",
-    )
-    print("\n")
-    # biases
-    test_grad_wrt_parameter(
-        layer=conv,
-        test_input=test_input,
-        target_output=target_output,
-        grad_wrt_param=conv.compute_grad_wrt_biases,
-        loss_fun=loss_function_biases,
-        param=conv.biases,
-        param_name="biases",
     )
     print("\n")
     # inputs
