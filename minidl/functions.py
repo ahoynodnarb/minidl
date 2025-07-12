@@ -798,17 +798,17 @@ class CrossEntropy(ops.BinaryOpClass):
         if y_true.shape != y_pred.shape:
             raise ValueError("y_true and y_pred must have the same shape")
 
-        if smoothing > 0:
+        if smoothing == 0:
             self.y_true = y_true
         else:
-            n_classes = self.y_true.shape[-1]
-            self.y_true = (1 - smoothing) * self.y_true + (smoothing / n_classes)
+            n_classes = y_true.shape[-1]
+            self.y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
 
         if from_logits:
             self.y_pred = y_pred
         else:
             # using more unstable method, need to avoid division by 0
-            self.y_pred = self.y_pred.clip(1e-8, None)
+            self.y_pred = y_pred.clip(1e-8, None)
 
         self.from_logits = from_logits
 
@@ -821,7 +821,7 @@ class CrossEntropy(ops.BinaryOpClass):
             smoothing: Union[int, float] = 0,
         ) -> md.Tensor:
             self.setup(y_true, y_pred, from_logits=from_logits, smoothing=smoothing)
-            if self.from_logits:
+            if from_logits:
                 lse = log_sum_exp(self.y_pred)
                 loss = -(self.y_true * (self.y_pred - lse))
             else:
@@ -832,15 +832,14 @@ class CrossEntropy(ops.BinaryOpClass):
         return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        # partial derivative of cross entropy loss wrt to predictions is pretty easy to derive: -y_true / y_pred
-        # if we want to precompute the gradient (using logsoftmax) the gradient calculation becomes (y_pred - y_true)
-        # we just throw in the division by len(y_true) to make up for batching
-        # precomputing the gradient (using logsoftmax) is just a lot more numerically stable since there's no risk of division by 0
-        def compute_grad_wrt_x(grad) -> md.Tensor:
+        def compute_grad_wrt_x(y_true, y_pred, grad) -> md.Tensor:
             # more numerically stable than -y_true / y_pred
             # don't need to sum these since they'll be automatically broadcasted in the backward pass
             if self.from_logits:
-                loss_grad = grad * (self.y_pred - self.y_true) / len(self.y_true)
+                mx = md.max(self.y_pred, axis=-1, keepdims=True)
+                e = md.exp(self.y_pred - mx)
+                softmax = e / md.sum(e, axis=-1, keepdims=True)
+                loss_grad = grad * (softmax - self.y_true)
             else:
                 loss_grad = grad * -self.y_true / self.y_pred
 
@@ -865,14 +864,14 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
         if smoothing <= 0:
             self.y_true = y_true
         else:
-            n_classes = self.y_true.shape[-1]
-            self.y_true = (1 - smoothing) * self.y_true + (smoothing / n_classes)
+            n_classes = y_true.shape[-1]
+            self.y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
 
         if from_logits:
             self.y_pred = y_pred
         else:
             # using more unstable method, need to avoid division by 0
-            self.y_pred = self.y_pred.clip(1e-8, None)
+            self.y_pred = y_pred.clip(1e-8, None)
 
         self.from_logits = from_logits
 

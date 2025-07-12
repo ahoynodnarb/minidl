@@ -35,7 +35,7 @@ class CrossEntropy(LossFunction):
             s = md.sum(e, axis=-1, keepdims=True)
             # log-sum-exp take the log of the sum of the exponents shifted by the max, and then shift again later
             lse = mx + md.log(s)
-            return -(y_smoothed * (y_pred - lse))
+            return -md.sum(y_smoothed * (y_pred - lse), axis=-1, keepdims=True)
         # avoid division by 0
         y_pred = y_pred.clip(1e-8, None)
         # compute the one hot loss, reshape to match
