@@ -1,5 +1,3 @@
-import math
-
 import minidiff as md
 
 
@@ -17,7 +15,7 @@ class Linear(ActivationFunction):
         return x
 
     def gradient(self, x: md.Tensor) -> md.Tensor:
-        return md.ones(shape=x.shape)
+        return md.ones(x.shape)
 
 
 class Softmax(ActivationFunction):
@@ -49,7 +47,7 @@ class LeakyReLU(ActivationFunction):
 
     def __call__(self, x: md.Tensor) -> md.Tensor:
         scaled = self.alpha * x
-        return md.where(scaled >= x, scaled, x)
+        return md.where(x >= 0, x, scaled)
 
     def gradient(self, x: md.Tensor) -> md.Tensor:
         return md.where(x >= 0, 1, self.alpha)
@@ -64,11 +62,3 @@ class Sigmoid(ActivationFunction):
         x = x.clip(-500, 500)
         out = self(x)
         return out * (1 - out)
-
-
-class GeLU(ActivationFunction):
-    def __call__(self, x):
-        return 0.5 * x * (1 + md.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * x**3)))
-
-    def gradient(self, x):
-        return math.sqrt(2 / math.pi) * 3 * 0.044715 * x**2

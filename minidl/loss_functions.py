@@ -70,7 +70,11 @@ class BinaryCrossEntropy(LossFunction):
             raise ValueError("y_true and y_pred must have the same shape")
         # avoid division by 0
         y_pred = y_pred.clip(1e-8, None)
-        return -y_true * md.log(y_pred) - (1 - y_true) * md.log(1 - y_pred)
+        return -md.mean(
+            y_true * md.log(y_pred) + (1 - y_true) * md.log(1 - y_pred),
+            axis=-1,
+            keepdims=True,
+        )
 
     def gradient(self, y_true: md.Tensor, y_pred: md.Tensor):
         y_pred = y_pred.clip(1e-8, None)

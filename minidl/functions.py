@@ -798,7 +798,7 @@ class CrossEntropy(ops.BinaryOpClass):
         if y_true.shape != y_pred.shape:
             raise ValueError("y_true and y_pred must have the same shape")
 
-        if smoothing == 0:
+        if smoothing <= 0:
             self.y_true = y_true
         else:
             n_classes = y_true.shape[-1]
@@ -826,7 +826,6 @@ class CrossEntropy(ops.BinaryOpClass):
                 loss = -(self.y_true * (self.y_pred - lse))
             else:
                 loss = -(self.y_true * md.log(self.y_pred))
-
             return md.sum(loss, axis=-1, keepdims=True)
 
         return forward
@@ -835,11 +834,13 @@ class CrossEntropy(ops.BinaryOpClass):
         def compute_grad_wrt_x(y_true, y_pred, grad) -> md.Tensor:
             # more numerically stable than -y_true / y_pred
             # don't need to sum these since they'll be automatically broadcasted in the backward pass
+            # CE = -self.y_true * (x - log(sum(e^x)))
+            # dCE/dx = -self.y_true * (1 - softmax(x))
             if self.from_logits:
                 mx = md.max(self.y_pred, axis=-1, keepdims=True)
                 e = md.exp(self.y_pred - mx)
                 softmax = e / md.sum(e, axis=-1, keepdims=True)
-                loss_grad = grad * (softmax - self.y_true)
+                loss_grad = -grad * self.y_true * (1 - softmax)
             else:
                 loss_grad = grad * -self.y_true / self.y_pred
 
@@ -898,7 +899,7 @@ class BinaryCrossEntropy(ops.BinaryOpClass):
         return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(grad: md.Tensor) -> md.Tensor:
+        def compute_grad_wrt_x(y_true, y_pred, grad) -> md.Tensor:
             if self.from_logits:
                 loss_grad = grad * -(self.y_true - self.y_pred) / self.y_true.shape[-1]
             else:
@@ -927,6 +928,55 @@ class MeanSquaredError(ops.BinaryOpClass):
             return grad * 2 * (y_pred - y_true) / y_true.shape[-1]
 
         return (None, compute_grad_wrt_x)
+
+
+def linear_forward(x: md.Tensor) -> md.Tensor:
+    return x
+
+
+def linear_grad(x: md.Tensor, grad: md.Tensor) -> md.Tensor:
+    return grad
+
+
+def softmax_forward(x: md.Tensor) -> md.Tensor:
+    # subtracting the maximum keeps the exponentiated values low
+    # after doing the algebra, the results are the same
+    mx = md.max(x, axis=-1, keepdims=True)
+    exponentiated = md.exp(x - mx)
+    return exponentiated / md.sum(exponentiated, axis=-1, keepdims=True)
+
+
+def softmax_backward(x: md.Tensor, grad: md.Tensor) -> md.Tensor:
+    values = softmax(x)
+    return values * (grad - md.sum(grad * values, axis=-1, keepdims=True))
+
+
+def relu_forward(x: md.Tensor) -> md.Tensor:
+    return x.clip(0, None)
+
+
+def relu_backward(x: md.Tensor, grad: md.Tensor) -> md.Tensor:
+    return md.where(x >= 0, grad, 0)
+
+
+def leakyrelu_forward(x: md.Tensor, alpha: float = 0.01) -> md.Tensor:
+    scaled = alpha * x
+    return md.where(x >= 0, x, scaled)
+
+
+def leakyrelu_backward(x: md.Tensor, grad: md.Tensor, alpha: float = 0.01) -> md.Tensor:
+    scaled = alpha * grad
+    return md.where(x >= 0, grad, scaled)
+
+
+def sigmoid_forward(x: md.Tensor) -> md.Tensor:
+    x = x.clip(-500, 500)
+    return 1 / (1 + md.exp(-x))
+
+
+def sigmoid_backward(x: md.Tensor, grad: md.Tensor) -> md.Tensor:
+    value = sigmoid(x)
+    return grad * value * (1 - value)
 
 
 convolve2d: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_stateful_op_func(
@@ -973,6 +1023,32 @@ mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
         op_name="mean_squared_error",
     )
 )
+linear: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
+    forward_func=linear_forward,
+    grad=linear_grad,
+    op_name="linear",
+)
+softmax: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
+    forward_func=softmax_forward,
+    grad=softmax_backward,
+    op_name="softmax",
+)
+relu: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
+    forward_func=relu_forward,
+    grad=relu_backward,
+    op_name="relu",
+)
+leakyrelu: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
+    forward_func=leakyrelu_forward,
+    grad=leakyrelu_backward,
+    propagate_kwargs=True,
+    op_name="leakyrelu",
+)
+sigmoid: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
+    forward_func=sigmoid_forward,
+    grad=sigmoid_backward,
+    op_name="sigmoid",
+)
 
 __all__ = [
     "convolve2d",
@@ -983,4 +1059,9 @@ __all__ = [
     "cross_entropy",
     "binary_cross_entropy",
     "mean_squared_error",
+    "linear",
+    "softmax",
+    "relu",
+    "leakyrelu",
+    "sigmoid",
 ]
