@@ -1,12 +1,14 @@
 [project]
 name = "minidl"
-version = "0.0.1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
     "minidiff",
-    "imgaug"
+    "numpy>=2.3.1",
+    "tqdm>=4.67.1",
 ]
 
-[project.optional-dependencies]
-GPU = [
-    "cupy",
-]
+[tool.uv.sources]
+minidiff = { path = "../minidiff" }
