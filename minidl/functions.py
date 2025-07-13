@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 import collections.abc as abc
 import math
 from typing import Callable, Optional, Tuple, Union
@@ -349,6 +351,8 @@ class Convolve2D(ops.BinaryOpClass):
                 out_dims=self.in_dims,
                 im2col_indices=self.backward_input_indices,
             )
+            # print("conv2d grad_wrt_x")
+            # print(np.linalg.norm(grad_wrt_x))
 
             return grad_wrt_x
 
@@ -384,6 +388,9 @@ class Convolve2D(ops.BinaryOpClass):
                 im2col_indices=self.backward_kern_indices,
             )
             grad_wrt_w = md.swapaxes(convolved, 0, -1)
+
+            # print("conv2d grad_wrt_w")
+            # print(np.linalg.norm(grad_wrt_w))
 
             return grad_wrt_w
 
@@ -421,7 +428,15 @@ class Dropout(ops.BinaryOpClass):
                 return md.where(self.mask == 0, 0, grad / prob)
             return md.where(self.mask == 0, 0, grad)
 
-        return (grad_wrt_x, None)
+        def wrapper(inputs, prob, grad, auto_scale=True, trainable=False):
+            a = grad_wrt_x(
+                inputs, prob, grad, auto_scale=auto_scale, trainable=trainable
+            )
+            # print("dropout grad_wrt_x")
+            # print(np.linalg.norm(a))
+            return a
+
+        return (wrapper, None)
 
 
 class BatchNormalization(ops.TernaryOpClass):
@@ -547,6 +562,9 @@ class BatchNormalization(ops.TernaryOpClass):
 
             grad_input = component1 + component2 + component3
 
+            # print("batchnorm grad_wrt_x")
+            # print(np.linalg.norm(grad_input))
+
             return grad_input
 
         def compute_grad_wrt_gamma(
@@ -579,7 +597,10 @@ class BatchNormalization(ops.TernaryOpClass):
                 return grad * normalized
 
             normalized_dimensions = tuple(range(grad.ndim - 1))
-            return md.sum(grad * self.x_hat, axis=normalized_dimensions)
+            out = md.sum(grad * self.x_hat, axis=normalized_dimensions)
+            # print("batchnorm grad_wrt_gamma")
+            # print(np.linalg.norm(out))
+            return out
 
         def compute_grad_wrt_beta(
             inputs: md.Tensor,
@@ -594,10 +615,10 @@ class BatchNormalization(ops.TernaryOpClass):
         ) -> md.Tensor:
 
             normalized_dimensions = tuple(range(grad.ndim - 1))
-            if not trainable:
-                return md.sum(grad, axis=normalized_dimensions, keepdims=True)
-
-            return md.sum(grad, axis=normalized_dimensions)
+            out = md.sum(grad, axis=normalized_dimensions)
+            # print("batchnorm grad_wrt_beta")
+            # print(np.linalg.norm(out))
+            return out
 
         return (compute_grad_wrt_x, compute_grad_wrt_gamma, compute_grad_wrt_beta)
 
@@ -728,6 +749,9 @@ class MaxPooling2D(ops.BinaryOpClass):
                 flattened_grad
             )
 
+            # print("maxpooling2d grad_wrt_x")
+            # print(np.linalg.norm(zeros))
+
             return zeros
 
         return (compute_grad_wrt_x, None)
@@ -796,6 +820,8 @@ class MeanPooling2D(ops.BinaryOpClass):
             grad_wrt_x[:, row_indices, col_indices, :] = flattened_grad / (
                 pool_size * pool_size
             )
+            # print("meanpooling2d grad_wrt_x")
+            # print(np.linalg.norm(grad_wrt_x))
             return grad_wrt_x
 
         return (compute_grad_wrt_x, None)
@@ -860,6 +886,11 @@ class CrossEntropy(ops.BinaryOpClass):
                 loss_grad = -grad * self.y_true * (1 - softmax)
             else:
                 loss_grad = grad * -self.y_true / self.y_pred
+
+            # print(self.y_true - self.y_pred)
+            # print(self.y_pred)
+            # print("crossentropy grad_wrt_x")
+            # print(np.linalg.norm(loss_grad))
 
             return loss_grad
 

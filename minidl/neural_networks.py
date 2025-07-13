@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+import numpy as np
+
 import minidiff as md
 from tqdm import tqdm
 
@@ -107,9 +109,7 @@ class NeuralNetwork:
     def update_layer_weights(self):
         # print(self.layer_optimizers)
         # print(self.layers)
-        for layer_optimizers, layer in zip(
-            reversed(self.layer_optimizers), reversed(self.layers)
-        ):
+        for layer_optimizers, layer in zip(self.layer_optimizers, self.layers):
             if not isinstance(layer, OptimizableLayer):
                 continue
             if not layer.trainable:

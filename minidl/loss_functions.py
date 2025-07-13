@@ -23,7 +23,9 @@ class CrossEntropy(LossFunction):
 
     # y_true should be a one-hot vector
     def __call__(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
-        return F.cross_entropy(y_true, y_pred)
+        return F.cross_entropy(
+            y_true, y_pred, from_logits=self.from_logits, smoothing=self.smoothing
+        )
         # if y_true is None:
         #     raise ValueError("Empty ground truth array")
         # if y_true.shape != y_pred.shape:
