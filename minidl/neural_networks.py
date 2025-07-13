@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import List
 
-from minidl.layers import OptimizableLayer, Layer
+from minidl.layers import OptimizableLayer, Layer, Conv2D
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler, Optimizer
 from minidl.utils.data import shuffle_dataset, split_batches
@@ -115,7 +115,11 @@ class NeuralNetwork:
             if not layer.trainable:
                 continue
             for layer_optimizer, param in zip(layer_optimizers, layer.params):
+                if isinstance(layer, Conv2D):
+                    print("Conv grad std: " + str(np.std(param.grad)))
+                # print(np.linalg.norm(param.grad))
                 layer_optimizer.update(param)
+                param.grad = None
 
             # layer_optimizers = self.layer_optimizers
 
@@ -174,14 +178,10 @@ class NeuralNetwork:
             )
             progress.set_description(f"Epoch #{epoch + 1}")
             self.check = False
-            for i, (x, y_true) in enumerate(progress):
+            for x, y_true in progress:
                 y_pred = self(x)
-                if i % 30 == 0:
-                    self.loss_function.flag = True
-                else:
-                    self.loss_function.flag = False
                 loss = self.loss_function(y_true, y_pred)
-                loss.backward()
+                loss.backward(cleanup_mode="destroy")
 
                 with md.no_grad():
                     self.update_layer_weights()

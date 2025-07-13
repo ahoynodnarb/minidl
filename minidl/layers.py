@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import minidiff as md
 from minidl import functions as F
 
@@ -675,6 +676,10 @@ class Conv2D(OptimizableLayer):
 
     # accepts two dimensional image, outputs 2 dimensional image
     def forward(self, inputs):
+        # print(
+        #     "Input min/max:", np.min(inputs), np.max(inputs)
+        # )  # Should be [0, 1] or [-1, 1]
+        # print("Input mean:", np.mean(inputs))  # Should be ~0.1 (MNIST)
         return F.convolve2d(
             inputs,
             self.kernels,
