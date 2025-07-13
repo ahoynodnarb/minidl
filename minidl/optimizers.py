@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import minidiff as md
 
 
@@ -25,6 +26,8 @@ class SGD(Optimizer):
             self.velocity = md.zeros_like(param)
 
         grad = param.grad
+        # print(md.max(md.abs(grad)))
+        # print(np.linalg.norm(grad))
         batch_size = grad.shape[0]
         regularized_grad = grad + l2_lambda * param
         self.velocity = (

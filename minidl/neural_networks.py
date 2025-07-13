@@ -64,18 +64,19 @@ class NeuralNetwork:
             self._layers.append(layer)
 
     def setup_layers(self, force=False):
-        for layer in self.layers:
-            should_setup = self.layers_setup and not force
-            if should_setup or not isinstance(layer, OptimizableLayer):
-                continue
+        with md.no_grad():
+            for layer in self.layers:
+                should_setup = not self.layers_setup or force
+                if not should_setup or not isinstance(layer, OptimizableLayer):
+                    continue
 
-            optimizers = []
-            for _ in range(layer.n_params):
-                new_optimizer = deepcopy(self.optimizer)
-                optimizers.append(new_optimizer)
+                layer.setup(trainable=self.trainable)
+                optimizers = []
+                for _ in range(layer.n_params):
+                    new_optimizer = deepcopy(self.optimizer)
+                    optimizers.append(new_optimizer)
 
-            self.layer_optimizers.append(optimizers)
-            layer.setup(trainable=self.trainable)
+                self.layer_optimizers.append(optimizers)
 
         self.layers_setup = True
 
@@ -104,7 +105,11 @@ class NeuralNetwork:
     #     return grad
 
     def update_layer_weights(self):
-        for layer_optimizers, layer in zip(self.layer_optimizers, self.layers):
+        # print(self.layer_optimizers)
+        # print(self.layers)
+        for layer_optimizers, layer in zip(
+            reversed(self.layer_optimizers), reversed(self.layers)
+        ):
             if not isinstance(layer, OptimizableLayer):
                 continue
             if not layer.trainable:
@@ -179,7 +184,7 @@ class NeuralNetwork:
                     total_training_correct += self.loss_function.total_correct(
                         y_true, y_pred
                     )
-                    total_training_loss += md.sum(loss)
+                    total_training_loss += md.sum(loss).item()
                 # grad = self.loss_function.gradient(y_true, y_pred)
                 # self.backpropagate(grad)
 
@@ -189,7 +194,7 @@ class NeuralNetwork:
             for x, y_true in zip(batched_val_data, batched_val_labels):
                 val_pred = self(x)
                 total_val_correct += self.loss_function.total_correct(y_true, val_pred)
-                total_val_loss += md.sum(self.loss_function(y_true, val_pred))
+                total_val_loss += md.sum(self.loss_function(y_true, val_pred)).item()
 
             val_acc = total_val_correct / len(val_data)
             avg_val_loss = total_val_loss / len(val_data)

@@ -160,6 +160,7 @@ class OptimizableLayer(Layer):
         return len(self.params)
 
     def bind_param(self, param: md.Tensor):
+        param.allow_grad = True
         self.params.append(param)
 
     # def bind_grads(self):
