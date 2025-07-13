@@ -174,8 +174,12 @@ class NeuralNetwork:
             )
             progress.set_description(f"Epoch #{epoch + 1}")
             self.check = False
-            for x, y_true in progress:
+            for i, (x, y_true) in enumerate(progress):
                 y_pred = self(x)
+                if i % 30 == 0:
+                    self.loss_function.flag = True
+                else:
+                    self.loss_function.flag = False
                 loss = self.loss_function(y_true, y_pred)
                 loss.backward()
 

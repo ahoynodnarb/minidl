@@ -16,7 +16,7 @@ class Optimizer:
 
 # pretty basic SGD implementation
 class SGD(Optimizer):
-    def __init__(self, learning_rate: float = 0.0005, beta: float = 0.9):
+    def __init__(self, learning_rate: float = 0.01, beta: float = 0.9):
         self.learning_rate = learning_rate
         self.beta = beta
         self.velocity = None

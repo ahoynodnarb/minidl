@@ -749,8 +749,8 @@ class MaxPooling2D(ops.BinaryOpClass):
                 flattened_grad
             )
 
-            # print("maxpooling2d grad_wrt_x")
-            # print(np.linalg.norm(zeros))
+            # # print("maxpooling2d grad_wrt_x")
+            # # print(np.linalg.norm(zeros))
 
             return zeros
 
@@ -820,8 +820,8 @@ class MeanPooling2D(ops.BinaryOpClass):
             grad_wrt_x[:, row_indices, col_indices, :] = flattened_grad / (
                 pool_size * pool_size
             )
-            # print("meanpooling2d grad_wrt_x")
-            # print(np.linalg.norm(grad_wrt_x))
+            # # print("meanpooling2d grad_wrt_x")
+            # # print(np.linalg.norm(grad_wrt_x))
             return grad_wrt_x
 
         return (compute_grad_wrt_x, None)
@@ -880,17 +880,29 @@ class CrossEntropy(ops.BinaryOpClass):
             # CE = -self.y_true * (x - log(sum(e^x)))
             # dCE/dx = -self.y_true * (1 - softmax(x))
             if self.from_logits:
-                mx = md.max(self.y_pred, axis=-1, keepdims=True)
-                e = md.exp(self.y_pred - mx)
-                softmax = e / md.sum(e, axis=-1, keepdims=True)
-                loss_grad = -grad * self.y_true * (1 - softmax)
+                # mx = md.max(self.y_pred, axis=-1, keepdims=True)
+                # e = md.exp(self.y_pred - mx)
+                # softmax = e / md.sum(e, axis=-1, keepdims=True)
+                probs = softmax(self.y_pred)
+                loss_grad = grad * (probs - self.y_true)
+                # loss_grad = -grad * self.y_true * (1 - softmax)
             else:
                 loss_grad = grad * -self.y_true / self.y_pred
 
-            # print(self.y_true - self.y_pred)
+            probs = softmax(self.y_pred)
+            # print(self.y_true)
+            # print(probs)
+            # print(self.y_true - probs)
+            # print(probs.shape)
+            # print(self.y_true.shape)
+            # print(self.y_true)
+            # print(probs)
+            # print(self.y_true - softmax(self.y_pred))
             # print(self.y_pred)
-            # print("crossentropy grad_wrt_x")
-            # print(np.linalg.norm(loss_grad))
+            if self.flag:
+                print("crossentropy grad_wrt_x")
+                print(np.linalg.norm(loss_grad))
+            # exit(0)
 
             return loss_grad
 

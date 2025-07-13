@@ -71,7 +71,7 @@ def test_dataset_at_index(network, index):
 if __name__ == "__main__":
     network = NeuralNetwork(
         loss_function=CrossEntropy(from_logits=True),
-        optimizer=SGD(learning_rate=0.001, beta=0.9),
+        optimizer=SGD(learning_rate=0.01, beta=0.9),
     )
     network.set_layers(
         # reformat the 784 element vector into a 28x28 image
