@@ -65,16 +65,18 @@ class NeuralNetwork:
 
     def setup_layers(self, force=False):
         for layer in self.layers:
-            if (self.layers_setup and not force) or not isinstance(
-                layer, OptimizableLayer
-            ):
+            should_setup = self.layers_setup and not force
+            if should_setup or not isinstance(layer, OptimizableLayer):
                 continue
+
             optimizers = []
             for _ in range(layer.n_params):
                 new_optimizer = deepcopy(self.optimizer)
                 optimizers.append(new_optimizer)
-            self.layer_optimizers.insert(0, optimizers)
+
+            self.layer_optimizers.append(optimizers)
             layer.setup(trainable=self.trainable)
+
         self.layers_setup = True
 
     def set_layers(self, *layers):
@@ -85,21 +87,32 @@ class NeuralNetwork:
             inputs = layer.forward(inputs)
         return inputs
 
-    def backpropagate(self, grad):
-        optimizer_idx = 0
-        for layer in reversed(self.layers):
-            grad = grad.clip(-1.0, 1.0)
-            old_grad = grad
-            grad = layer.backward(grad)
-            if not layer.trainable:
-                continue
+    # def backpropagate(self, grad):
+    #     optimizer_idx = 0
+    #     for layer in reversed(self.layers):
+    #         grad = grad.clip(-1.0, 1.0)
+    #         old_grad = grad
+    #         grad = layer.backward(grad)
+    #         if not layer.trainable:
+    #             continue
+    #         if not isinstance(layer, OptimizableLayer):
+    #             continue
+    #         optimizers = self.layer_optimizers[optimizer_idx]
+    #         layer.update_params(old_grad, optimizers)
+    #         optimizer_idx += 1
+
+    #     return grad
+
+    def update_layer_weights(self):
+        for layer_optimizers, layer in zip(self.layer_optimizers, self.layers):
             if not isinstance(layer, OptimizableLayer):
                 continue
-            optimizers = self.layer_optimizers[optimizer_idx]
-            layer.update_params(old_grad, optimizers)
-            optimizer_idx += 1
+            if not layer.trainable:
+                continue
+            for layer_optimizer, param in zip(layer_optimizers, layer.params):
+                layer_optimizer.update(param)
 
-        return grad
+            # layer_optimizers = self.layer_optimizers
 
     def train(
         self,
@@ -158,14 +171,17 @@ class NeuralNetwork:
             self.check = False
             for x, y_true in progress:
                 y_pred = self(x)
+                loss = self.loss_function(y_true, y_pred)
+                loss.backward()
 
-                grad = self.loss_function.gradient(y_true, y_pred)
-                self.backpropagate(grad)
-
-                total_training_correct += self.loss_function.total_correct(
-                    y_true, y_pred
-                )
-                total_training_loss += md.sum(self.loss_function(y_true, y_pred))
+                with md.no_grad():
+                    self.update_layer_weights()
+                    total_training_correct += self.loss_function.total_correct(
+                        y_true, y_pred
+                    )
+                    total_training_loss += md.sum(loss)
+                # grad = self.loss_function.gradient(y_true, y_pred)
+                # self.backpropagate(grad)
 
             self.trainable = False
             total_val_correct = 0

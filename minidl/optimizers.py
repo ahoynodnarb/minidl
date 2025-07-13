@@ -6,34 +6,41 @@ import minidiff as md
 class Optimizer:
     learning_rate: float
 
-    def __init__(self, learning_rate=1e-3):
+    def __init__(self, learning_rate: float = 1e-3):
         raise NotImplementedError
 
-    def update(self, params, grad, l2_lambda=0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0):
         raise NotImplementedError
 
 
 # pretty basic SGD implementation
 class SGD(Optimizer):
-    def __init__(self, learning_rate=0.0005, beta=0.9):
+    def __init__(self, learning_rate: float = 0.0005, beta: float = 0.9):
         self.learning_rate = learning_rate
         self.beta = beta
         self.velocity = None
 
-    def update(self, params, grad, l2_lambda=0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0):
         if self.velocity is None:
-            self.velocity = md.zeros_like(params)
+            self.velocity = md.zeros_like(param)
 
+        grad = param.grad
         batch_size = grad.shape[0]
-        regularized_grad = grad + l2_lambda * params
+        regularized_grad = grad + l2_lambda * param
         self.velocity = (
             self.beta * self.velocity + self.learning_rate * regularized_grad
         )
-        return params - self.velocity / batch_size
+        param -= self.velocity / batch_size
 
 
 class Adam(Optimizer):
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-7):
+    def __init__(
+        self,
+        learning_rate: float = 0.001,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        epsilon: float = 1e-7,
+    ):
         self.learning_rate = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
@@ -43,13 +50,14 @@ class Adam(Optimizer):
         self.velocity = None
         self.t = 0
 
-    def update(self, params, grad, l2_lambda=0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0):
         self.t += 1
+        grad = param.grad
         if self.momentum is None:
             self.momentum = md.zeros_like(grad)
             self.velocity = md.zeros_like(grad)
 
-        regularized_grad = grad + l2_lambda * params
+        regularized_grad = grad + l2_lambda * param
 
         self.momentum = self.beta1 * self.momentum + (1 - self.beta1) * regularized_grad
         self.velocity = self.beta2 * self.velocity + (1 - self.beta2) * (
@@ -60,11 +68,17 @@ class Adam(Optimizer):
         v_hat = self.velocity / (1 - self.beta2**self.t)
 
         w_updt = self.learning_rate * m_hat / (md.sqrt(v_hat) + self.epsilon)
-        return params - w_updt
+        param -= w_updt
 
 
 class AdamW(Optimizer):
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-7):
+    def __init__(
+        self,
+        learning_rate: float = 0.001,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        epsilon: float = 1e-7,
+    ):
         self.learning_rate = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
@@ -74,8 +88,9 @@ class AdamW(Optimizer):
         self.velocity = None
         self.t = 0
 
-    def update(self, params, grad, l2_lambda=0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0):
         self.t += 1
+        grad = param.grad
         if self.momentum is None:
             self.momentum = md.zeros_like(grad)
             self.velocity = md.zeros_like(grad)
@@ -88,8 +103,8 @@ class AdamW(Optimizer):
 
         # this part decouples weight decay from the step calculation
         # https://paperswithcode.com/method/adamw
-        return params - self.learning_rate * (
-            m_hat / (md.sqrt(v_hat) + self.epsilon) + l2_lambda * params
+        param -= self.learning_rate * (
+            m_hat / (md.sqrt(v_hat) + self.epsilon) + l2_lambda * param
         )
 
 
@@ -183,7 +198,7 @@ class ReduceLROnPlateau(LRScheduler):
             self.intolerable_epochs = 0
             self.last_updated_epoch = current_epoch
 
-    def update(self, params, grad, **kwargs):
+    def update(self, param, **kwargs):
         if self.update_lr:
             self.update_lr = False
             cur_lr = self.optimizer.learning_rate
@@ -193,7 +208,7 @@ class ReduceLROnPlateau(LRScheduler):
                 self.optimizer.learning_rate = new_lr
                 print("updating learning rate: " + str(new_lr))
         # always need to at least update
-        return self.optimizer.update(params, grad, **kwargs)
+        return self.optimizer.update(param, **kwargs)
 
 
 class CosineAnnealingLR(LRScheduler):
@@ -210,14 +225,14 @@ class CosineAnnealingLR(LRScheduler):
             self.stopped = True
         self.current_epoch = current_epoch
 
-    def update(self, params, grad, **kwargs):
+    def update(self, param, **kwargs):
         if not self.stopped:
             self.optimizer.learning_rate = (
                 self.initial_lr
                 * 0.5
                 * (1 + math.cos(math.pi * self.current_epoch / self.max_epochs))
             )
-        return self.optimizer.update(params, grad, **kwargs)
+        return self.optimizer.update(param, **kwargs)
 
 
 class LinearLR(LRScheduler):
@@ -243,7 +258,7 @@ class LinearLR(LRScheduler):
         else:
             self.iterations += 1
 
-    def update(self, params, grad, **kwargs):
+    def update(self, param, **kwargs):
         if not self.stopped:
             self.optimizer.learning_rate = self.initial_lr * (
                 (1 - self.iterations / self.total_iterations) * self.start_factor
@@ -251,7 +266,7 @@ class LinearLR(LRScheduler):
             )
         else:
             self.optimizer.learning_rate = self.initial_lr * self.end_factor
-        return self.optimizer.update(params, grad, **kwargs)
+        return self.optimizer.update(param, **kwargs)
 
     @property
     def learning_rate(self):
@@ -283,6 +298,6 @@ class SequentialLR(LRScheduler):
             self.iterations += 1
         self.schedulers[self.idx].update_state(current_epoch, current_metric)
 
-    def update(self, params, grad, **kwargs):
+    def update(self, param, **kwargs):
         cur_scheduler = self.schedulers[self.idx]
-        return cur_scheduler.update(params, grad, **kwargs)
+        return cur_scheduler.update(param, **kwargs)

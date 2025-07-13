@@ -603,7 +603,13 @@ class BatchNormalization(ops.TernaryOpClass):
 
 
 class MaxPooling2D(ops.BinaryOpClass):
-    def setup(self, inputs: md.Tensor, pool_size: int, stride: Optional[int] = None):
+    def setup(
+        self,
+        inputs: md.Tensor,
+        pool_size: int,
+        stride: Optional[int] = None,
+        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+    ):
         # self.inputs = inputs
         # self.pool_size = pool_size
         self.stride = pool_size if stride is None else stride
@@ -616,9 +622,11 @@ class MaxPooling2D(ops.BinaryOpClass):
 
         # self.in_channels = in_channels
 
-        self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, self.stride
-        )
+        if forward_indices is None:
+            forward_indices = calculate_im2col_indices(
+                *self.out_dims, pool_size, pool_size, self.stride
+            )
+        self.forward_indices = forward_indices
 
         self.row_offset, self.col_offset = self.compute_window_offsets(
             *self.out_dims, self.stride
@@ -647,8 +655,11 @@ class MaxPooling2D(ops.BinaryOpClass):
             inputs: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
+            forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(inputs, pool_size, stride=stride)
+            self.setup(
+                inputs, pool_size, stride=stride, forward_indices=forward_indices
+            )
 
             batch_size, _, _, in_channels = inputs.shape
 
@@ -728,6 +739,7 @@ class MeanPooling2D(ops.BinaryOpClass):
         inputs: md.Tensor,
         pool_size: int,
         stride: Optional[int] = None,
+        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
     ):
         # self.inputs = inputs
         _, in_height, in_width, _ = inputs.shape
@@ -738,17 +750,22 @@ class MeanPooling2D(ops.BinaryOpClass):
             in_height, in_width, pool_size, pool_size, self.stride
         )
 
-        self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, self.stride
-        )
+        if forward_indices is None:
+            forward_indices = calculate_im2col_indices(
+                *self.out_dims, pool_size, pool_size, self.stride
+            )
+        self.forward_indices = forward_indices
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward(
             inputs: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
+            forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(inputs, pool_size, stride=stride)
+            self.setup(
+                inputs, pool_size, stride=stride, forward_indices=forward_indices
+            )
             batch_size, _, _, in_channels = inputs.shape
 
             out_shape = (batch_size, *self.out_dims, in_channels)
