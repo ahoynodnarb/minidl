@@ -1,7 +1,7 @@
 import minidiff as md
 from mnist import MNIST
 
-from minidl.activation_functions import ReLU
+from minidl.activation_functions import ReLU, Softmax
 from minidl.layers import (
     ActivationLayer,
     BatchNormalization,
@@ -10,6 +10,8 @@ from minidl.layers import (
     Dropout,
     ExpandingLayer,
     FlatteningLayer,
+    MeanPooling2D,
+    MaxPooling2D,
 )
 from minidl.loss_functions import CrossEntropy
 from minidl.neural_networks import NeuralNetwork
@@ -33,12 +35,17 @@ def train_network(network):
     # normalize the images to be between 0 and 1, so the inputs are not too massive
     # then shuffle so we aren't always training with the exact same dataset
     training_images = md.Tensor(training_images) / 255.0
+    # print(max(training_images))
+    # print(min(training_images))
+    # print(training_images.dtype)
     # training_images = np.array(training_images)
     training_labels = md.Tensor(training_labels)
 
     training_labels = format_labels(training_labels)
 
-    network.train(training_images[:10], training_labels[:10], batch_size=64, epochs=50)
+    network.train(
+        training_images[:100], training_labels[:100], batch_size=64, epochs=1000
+    )
 
 
 def test_network(network):
@@ -71,55 +78,84 @@ def test_dataset_at_index(network, index):
 if __name__ == "__main__":
     network = NeuralNetwork(
         loss_function=CrossEntropy(from_logits=True),
-        # optimizer=SGD(learning_rate=0.1),
-        optimizer=Adam(learning_rate=0.01),
+        optimizer=SGD(learning_rate=0.1),
+        # optimizer=Adam(learning_rate=0.1),
     )
+    network.set_layers(
+        # reformat the 784 element vector into a 28x28 image
+        ExpandingLayer((28, 28, 1)),
+        # first convolution layer
+        Conv2D(28, 28, 1, padding=2, n_kernels=5, kernel_size=5, stride=1),
+        # activation function, outside the scope of the report
+        ActivationLayer(ReLU()),
+        # flatten the output of the Conv2D layer back into one long vector
+        FlatteningLayer((28, 28, 5)),
+        # beginning of the fully-connected layer
+        Dense(1024, 28 * 28 * 5),
+        ActivationLayer(ReLU()),
+        # dropout layer to prevent overfitting, also outside the scope
+        # Dropout(0.25),
+        # finally, the output layer
+        Dense(10, 1024),
+        # ActivationLayer(Softmax(precompute_grad=True)),
+    )
+    # network.set_layers(
+    #     ExpandingLayer((28, 28, 1)),
+    #     # Dense(28 * 28 * 1, 28 * 28 * 1),
+    #     Conv2D(28, 28, 1, padding=1, n_kernels=32, kernel_size=3),
+    #     ActivationLayer(ReLU()),
+    #     FlatteningLayer((28, 28, 32)),
+    #     Dense(10, 28 * 28 * 32),
+    #     # ActivationLayer(Softmax()),
+    #     # ActivationLayer(ReLU()),
+    #     # MaxPooling2D(28, 28, 4, 2),
+    # )
     # network.set_layers(
     #     Dense(128, 784),
     #     ActivationLayer(ReLU()),
     #     Dense(10, 128),
     # )
-    network.set_layers(
-        # reformat the 784 element vector into a 28x28 image
-        ExpandingLayer((28, 28, 1)),
-        # first convolution layer
-        Conv2D(28, 28, 1, padding=1, n_kernels=1, kernel_size=3, stride=1),
-        # activation function, outside the scope of the report
-        ActivationLayer(ReLU()),
-        # flatten the output of the Conv2D layer back into one long vector
-        FlatteningLayer((28, 28, 1)),
-        # beginning of the fully-connected layer
-        Dense(10, 28 * 28 * 1),
-        # ActivationLayer(ReLU()),
-        # dropout layer to prevent overfitting, also outside the scope
-        # Dropout(0.25),
-        # finally, the output layer
-        # Dense(10, 512),
-        # # reformat the 784 element vector into a 28x28 image
-        # ExpandingLayer((28, 28, 1)),
-        # # first convolution layer
-        # Conv2D(
-        #     28, 28, 1, padding=2, n_kernels=5, kernel_size=5, stride=1, l2_lambda=1e-4
-        # ),
-        # BatchNormalization(5),
-        # ActivationLayer(ReLU()),
-        # Conv2D(
-        #     28, 28, 5, padding=2, n_kernels=10, kernel_size=5, stride=1, l2_lambda=1e-4
-        # ),
-        # BatchNormalization(10),
-        # ActivationLayer(ReLU()),
-        # # activation function, outside the scope of the report
-        # # Dropout(0.5),
-        # # flatten the output of the Conv2D layer back into one long vector
-        # FlatteningLayer((28, 28, 10)),
-        # # beginning of the fully-connected layer
-        # Dense(1024, 28 * 28 * 10, l2_lambda=1e-4),
-        # ActivationLayer(ReLU()),
-        # # dropout layer to prevent overfitting, also outside the scope
-        # # finally, the output layer
-        # Dense(10, 1024, l2_lambda=1e-4),
-        # # ActivationLayer(Softmax(from_logits=True)),
-    )
+    # network.set_layers(
+    # # reformat the 784 element vector into a 28x28 image
+    # ExpandingLayer((28, 28, 1)),
+    # # first convolution layer
+    # Conv2D(28, 28, 1, padding=1, n_kernels=1, kernel_size=3, stride=1),
+    # # activation function, outside the scope of the report
+    # ActivationLayer(ReLU()),
+    # # flatten the output of the Conv2D layer back into one long vector
+    # FlatteningLayer((28, 28, 1)),
+    # # beginning of the fully-connected layer
+    # Dense(10, 28 * 28 * 1),
+    # ActivationLayer(ReLU()),
+    # dropout layer to prevent overfitting, also outside the scope
+    # Dropout(0.25),
+    # finally, the output layer
+    # Dense(10, 512),
+    # # reformat the 784 element vector into a 28x28 image
+    # ExpandingLayer((28, 28, 1)),
+    # # first convolution layer
+    # Conv2D(
+    #     28, 28, 1, padding=2, n_kernels=5, kernel_size=5, stride=1, l2_lambda=1e-4
+    # ),
+    # BatchNormalization(5),
+    # ActivationLayer(ReLU()),
+    # Conv2D(
+    #     28, 28, 5, padding=2, n_kernels=10, kernel_size=5, stride=1, l2_lambda=1e-4
+    # ),
+    # BatchNormalization(10),
+    # ActivationLayer(ReLU()),
+    # # activation function, outside the scope of the report
+    # # Dropout(0.5),
+    # # flatten the output of the Conv2D layer back into one long vector
+    # FlatteningLayer((28, 28, 10)),
+    # # beginning of the fully-connected layer
+    # Dense(1024, 28 * 28 * 10, l2_lambda=1e-4),
+    # ActivationLayer(ReLU()),
+    # # dropout layer to prevent overfitting, also outside the scope
+    # # finally, the output layer
+    # Dense(10, 1024, l2_lambda=1e-4),
+    # # ActivationLayer(Softmax(from_logits=True)),
+    # )
     # network.load_network("./examples/MNIST_Classifier.npy")
     # test_network(network)
     try:

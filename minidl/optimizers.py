@@ -22,12 +22,12 @@ class SGD(Optimizer):
         self.velocity = None
 
     def update(self, param: md.Tensor, l2_lambda: float = 0):
+        param -= self.learning_rate * param.grad
+        return
         if self.velocity is None:
             self.velocity = md.zeros_like(param)
 
         grad = param.grad
-        # print(md.max(md.abs(grad)))
-        # print(np.linalg.norm(grad))
         batch_size = grad.shape[0]
         regularized_grad = grad + l2_lambda * param
         self.velocity = (
@@ -51,7 +51,7 @@ class Adam(Optimizer):
 
         self.momentum = None
         self.velocity = None
-        self.t = 1
+        self.t = 0
 
     def update(self, param: md.Tensor, l2_lambda: float = 0):
         self.t += 1
@@ -60,7 +60,7 @@ class Adam(Optimizer):
             self.momentum = md.zeros_like(grad)
             self.velocity = md.zeros_like(grad)
 
-        regularized_grad = grad - l2_lambda * param
+        regularized_grad = grad + l2_lambda * param
 
         self.momentum = self.beta1 * self.momentum + (1 - self.beta1) * regularized_grad
         self.velocity = self.beta2 * self.velocity + (1 - self.beta2) * (
@@ -70,11 +70,7 @@ class Adam(Optimizer):
         m_hat = self.momentum / (1 - self.beta1**self.t)
         v_hat = self.velocity / (1 - self.beta2**self.t)
 
-        print("Adam m_hat:", np.mean(m_hat))  # Should be ~gradient scale
-        print("Adam v_hat:", np.mean(v_hat))  # Should be ~gradient squared
-
         w_updt = self.learning_rate * m_hat / (md.sqrt(v_hat) + self.epsilon)
-        print(np.mean(w_updt))
         param -= w_updt
 
 

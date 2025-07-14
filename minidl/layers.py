@@ -207,6 +207,8 @@ class Dense(OptimizableLayer):
         self.biases = None
 
     def save_layer(self, fstream):
+        # print(type(self.weights))
+        # print(type(self.biases))
         md.save(fstream, self.weights)
         md.save(fstream, self.biases)
 
@@ -656,6 +658,7 @@ class Conv2D(OptimizableLayer):
     #     return grad_wrt_w
 
     def save_layer(self, fstream):
+        print(type(self.kernels))
         md.save(fstream, self.kernels)
 
     def load_layer(self, fstream):

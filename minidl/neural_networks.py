@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import List
 
-from minidl.layers import OptimizableLayer, Layer, Conv2D
+from minidl.layers import OptimizableLayer, Layer, Conv2D, Dense, FlatteningLayer
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler, Optimizer
 from minidl.utils.data import shuffle_dataset, split_batches
@@ -111,14 +111,45 @@ class NeuralNetwork:
         # print(self.layers)
         for layer_optimizers, layer in zip(self.layer_optimizers, self.layers):
             if not isinstance(layer, OptimizableLayer):
+                # print(f"skipping not optimizeable {layer=}")
                 continue
             if not layer.trainable:
+                # print(f"skipping not trainable {layer=}")
                 continue
             for layer_optimizer, param in zip(layer_optimizers, layer.params):
-                if isinstance(layer, Conv2D):
-                    print("Conv grad std: " + str(np.std(param.grad)))
+                # print(layer)
+                # print(param.grad)
+                # print(layer)
+                # print(param)
+                # print(layer_optimizer)
+                # if isinstance(layer, Conv2D):
+                #     print("Conv grad std: " + str(np.std(param.grad)))
                 # print(np.linalg.norm(param.grad))
+                if isinstance(layer, Dense):
+                    print("Dense grad norm:", np.linalg.norm(param.grad))
+                if isinstance(layer, FlatteningLayer):
+                    print("Flatten grad norm:", np.linalg.norm(param.grad))
+                if isinstance(layer, Conv2D):
+                    print("Conv kernel grad norm:", np.linalg.norm(param.grad))
+                prev = param.copy()
+                prev_grad = param.grad.copy()
                 layer_optimizer.update(param)
+                if isinstance(layer, Conv2D):
+                    after = param.copy()
+                    print("Before:", prev[0, 0, 0, 0])  # Single weight
+                    # ... training step ...
+                    print("After:", after[0, 0, 0, 0])  # Should change
+                    print("Gradient:", prev_grad[0, 0, 0, 0])  # Should be non-zero
+                    # print("Max kernel grad:", md.max(md.abs(param.grad)))
+                    # # print("Min kernel grad:", np.min(param.grad))
+                    # print("Kernel update norm:", np.linalg.norm(after - prev))
+                    # print(
+                    #     "Kernel before/after update:",
+                    #     prev,
+                    #     "→",
+                    #     after,
+                    # )
+                # print(np.mean(after - prev))
                 param.grad = None
 
             # layer_optimizers = self.layer_optimizers
@@ -177,7 +208,6 @@ class NeuralNetwork:
                 bar_format="{l_bar}{bar:30}{r_bar}",
             )
             progress.set_description(f"Epoch #{epoch + 1}")
-            self.check = False
             for x, y_true in progress:
                 y_pred = self(x)
                 loss = self.loss_function(y_true, y_pred)
@@ -192,13 +222,18 @@ class NeuralNetwork:
                 # grad = self.loss_function.gradient(y_true, y_pred)
                 # self.backpropagate(grad)
 
-            self.trainable = False
-            total_val_correct = 0
-            total_val_loss = 0
-            for x, y_true in zip(batched_val_data, batched_val_labels):
-                val_pred = self(x)
-                total_val_correct += self.loss_function.total_correct(y_true, val_pred)
-                total_val_loss += md.sum(self.loss_function(y_true, val_pred)).item()
+            with md.no_grad():
+                self.trainable = False
+                total_val_correct = 0
+                total_val_loss = 0
+                for x, y_true in zip(batched_val_data, batched_val_labels):
+                    val_pred = self(x)
+                    total_val_correct += self.loss_function.total_correct(
+                        y_true, val_pred
+                    )
+                    total_val_loss += md.sum(
+                        self.loss_function(y_true, val_pred)
+                    ).item()
 
             val_acc = total_val_correct / len(val_data)
             avg_val_loss = total_val_loss / len(val_data)
