@@ -1,6 +1,5 @@
 import math
 
-import numpy as np
 import minidiff as md
 
 
@@ -22,8 +21,6 @@ class SGD(Optimizer):
         self.velocity = None
 
     def update(self, param: md.Tensor, l2_lambda: float = 0):
-        param -= self.learning_rate * param.grad
-        return
         if self.velocity is None:
             self.velocity = md.zeros_like(param)
 

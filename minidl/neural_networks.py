@@ -1,7 +1,5 @@
 from copy import deepcopy
 
-import numpy as np
-
 import minidiff as md
 from tqdm import tqdm
 
@@ -10,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import List
 
-from minidl.layers import OptimizableLayer, Layer, Conv2D, Dense, FlatteningLayer
+from minidl.layers import OptimizableLayer, Layer
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler, Optimizer
 from minidl.utils.data import shuffle_dataset, split_batches
@@ -73,11 +71,11 @@ class NeuralNetwork:
                     continue
 
                 layer.setup(trainable=self.trainable)
+
                 optimizers = []
                 for _ in range(layer.n_params):
                     new_optimizer = deepcopy(self.optimizer)
                     optimizers.append(new_optimizer)
-
                 self.layer_optimizers.append(optimizers)
 
         self.layers_setup = True
@@ -90,69 +88,16 @@ class NeuralNetwork:
             inputs = layer.forward(inputs)
         return inputs
 
-    # def backpropagate(self, grad):
-    #     optimizer_idx = 0
-    #     for layer in reversed(self.layers):
-    #         grad = grad.clip(-1.0, 1.0)
-    #         old_grad = grad
-    #         grad = layer.backward(grad)
-    #         if not layer.trainable:
-    #             continue
-    #         if not isinstance(layer, OptimizableLayer):
-    #             continue
-    #         optimizers = self.layer_optimizers[optimizer_idx]
-    #         layer.update_params(old_grad, optimizers)
-    #         optimizer_idx += 1
-
-    #     return grad
-
     def update_layer_weights(self):
-        # print(self.layer_optimizers)
-        # print(self.layers)
-        for layer_optimizers, layer in zip(self.layer_optimizers, self.layers):
-            if not isinstance(layer, OptimizableLayer):
-                # print(f"skipping not optimizeable {layer=}")
-                continue
+        optimizeable_layers = [
+            layer for layer in self.layers if isinstance(layer, OptimizableLayer)
+        ]
+        for optimizers, layer in zip(self.layer_optimizers, optimizeable_layers):
             if not layer.trainable:
-                # print(f"skipping not trainable {layer=}")
                 continue
-            for layer_optimizer, param in zip(layer_optimizers, layer.params):
-                # print(layer)
-                # print(param.grad)
-                # print(layer)
-                # print(param)
-                # print(layer_optimizer)
-                # if isinstance(layer, Conv2D):
-                #     print("Conv grad std: " + str(np.std(param.grad)))
-                # print(np.linalg.norm(param.grad))
-                if isinstance(layer, Dense):
-                    print("Dense grad norm:", np.linalg.norm(param.grad))
-                if isinstance(layer, FlatteningLayer):
-                    print("Flatten grad norm:", np.linalg.norm(param.grad))
-                if isinstance(layer, Conv2D):
-                    print("Conv kernel grad norm:", np.linalg.norm(param.grad))
-                prev = param.copy()
-                prev_grad = param.grad.copy()
-                layer_optimizer.update(param)
-                if isinstance(layer, Conv2D):
-                    after = param.copy()
-                    print("Before:", prev[0, 0, 0, 0])  # Single weight
-                    # ... training step ...
-                    print("After:", after[0, 0, 0, 0])  # Should change
-                    print("Gradient:", prev_grad[0, 0, 0, 0])  # Should be non-zero
-                    # print("Max kernel grad:", md.max(md.abs(param.grad)))
-                    # # print("Min kernel grad:", np.min(param.grad))
-                    # print("Kernel update norm:", np.linalg.norm(after - prev))
-                    # print(
-                    #     "Kernel before/after update:",
-                    #     prev,
-                    #     "→",
-                    #     after,
-                    # )
-                # print(np.mean(after - prev))
+            for optimizer, param in zip(optimizers, layer.params):
+                optimizer.update(param)
                 param.grad = None
-
-            # layer_optimizers = self.layer_optimizers
 
     def train(
         self,
@@ -210,6 +155,7 @@ class NeuralNetwork:
             progress.set_description(f"Epoch #{epoch + 1}")
             for x, y_true in progress:
                 y_pred = self(x)
+
                 loss = self.loss_function(y_true, y_pred)
                 loss.backward(cleanup_mode="destroy")
 
@@ -219,8 +165,6 @@ class NeuralNetwork:
                         y_true, y_pred
                     )
                     total_training_loss += md.sum(loss).item()
-                # grad = self.loss_function.gradient(y_true, y_pred)
-                # self.backpropagate(grad)
 
             with md.no_grad():
                 self.trainable = False
