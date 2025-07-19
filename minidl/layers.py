@@ -21,11 +21,11 @@ from minidl.utils.pooling import (
 class Layer:
     trainable: bool = False
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         raise NotImplementedError
 
-    def __call__(self, inputs: md.Tensor) -> md.Tensor:
-        return self.forward(inputs)
+    def __call__(self, x: md.Tensor) -> md.Tensor:
+        return self.forward(x)
 
 
 class OptimizableLayer(Layer):
@@ -39,7 +39,7 @@ class OptimizableLayer(Layer):
     def load_layer(self, fstream):
         raise NotImplementedError
 
-    def setup(self, trainable: bool = True):
+    def setup(self, trainable: bool = True, reset_params: bool = False):
         raise NotImplementedError
 
     @property
@@ -57,8 +57,8 @@ class ActivationLayer(Layer):
     def __init__(self, activation_function: mdt.UnaryOp):
         self.activation_function = activation_function
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
-        return self.activation_function(inputs)
+    def forward(self, x: md.Tensor) -> md.Tensor:
+        return self.activation_function(x)
 
 
 class Dense(OptimizableLayer):
@@ -78,26 +78,26 @@ class Dense(OptimizableLayer):
         self.biases = md.load(fstream)
 
     # called when actually added to a net
-    def setup(self, trainable: bool = True):
+    def setup(self, trainable: bool = True, reset_params: bool = False):
         self.trainable = trainable
         # store weights as matrix of n_weights x n_neurons
         # n_weights should be the same as n_neurons of the previous layer
         # pre-transposing here so we don't have to later for calculations
         # note: should probably change this rng later, but I don't think it actually matters that much
-        if self.weights is None:
+        if reset_params or self.weights is None:
             scale = math.sqrt(2 / self.n_weights)
             self.weights = scale * md.randn(self.n_weights, self.n_neurons)
             self.bind_param(self.weights)
         # store biases as row vector of size n_neurons
-        if self.biases is None:
+        if reset_params or self.biases is None:
             self.biases = md.zeros((1, self.n_neurons))
             self.bind_param(self.biases)
 
-    # inputs should be a row vector
+    # x should be a row vector
     # forward should return a row vector
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         # number of inputs needs to match number of weights
-        if inputs.shape[-1] != self.weights.shape[0]:
+        if x.shape[-1] != self.weights.shape[0]:
             raise ValueError(
                 "Inputs to forward do not match the number of weights in this layer"
             )
@@ -106,7 +106,7 @@ class Dense(OptimizableLayer):
         # by its corresponding input, and returns a vector representing the outputs from each neuron
         # it is much faster to do one massive matrix multiplication here since a pure python loop would be
         # relatively incredibly slow compared to a GPU-optimized matrix multiplication
-        product = md.matmul(inputs, self.weights) + self.biases
+        product = md.matmul(x, self.weights) + self.biases
         return product
 
 
@@ -122,9 +122,9 @@ class Dropout(Layer):
         self.auto_scale = auto_scale
         self.trainable = trainable
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         return F.dropout(
-            inputs, self.p, auto_scale=self.auto_scale, trainable=self.trainable
+            x, self.p, auto_scale=self.auto_scale, trainable=self.trainable
         )
 
 
@@ -159,18 +159,18 @@ class BatchNormalization(OptimizableLayer):
         self.moving_means = md.load(fstream)
         self.moving_variances = md.load(fstream)
 
-    def setup(self, trainable: bool = True):
+    def setup(self, trainable: bool = True, reset_params: bool = False):
         self.trainable = trainable
-        if self.gamma is None:
+        if reset_params or self.gamma is None:
             self.gamma = md.ones(self.n_dimensions)
             self.bind_param(self.gamma)
-        if self.beta is None:
+        if reset_params or self.beta is None:
             self.beta = md.zeros(self.n_dimensions)
             self.bind_param(self.beta)
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         return F.batchnormalize(
-            inputs,
+            x,
             self.gamma,
             self.beta,
             epsilon=self.epsilon,
@@ -186,8 +186,8 @@ class FlatteningLayer(Layer):
     def __init__(self, in_shape: Union[int, Sequence[int]]):
         self.flat_len = math.prod(in_shape)
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
-        return inputs.reshape((-1, self.flat_len))
+    def forward(self, x: md.Tensor) -> md.Tensor:
+        return x.reshape((-1, self.flat_len))
 
 
 # opposite of FlatteningLayer
@@ -195,8 +195,8 @@ class ExpandingLayer(Layer):
     def __init__(self, out_shape: Union[int, Sequence[int]]):
         self.out_shape = out_shape
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
-        return inputs.reshape((-1, *self.out_shape))
+    def forward(self, x: md.Tensor) -> md.Tensor:
+        return x.reshape((-1, *self.out_shape))
 
 
 # Convolutional layers are extremely useful for image analysis.
@@ -255,9 +255,9 @@ class Conv2D(OptimizableLayer):
     def load_layer(self, fstream):
         self.kernels = md.load(fstream)
 
-    def setup(self, trainable: bool = True):
+    def setup(self, trainable: bool = True, reset_params: bool = False):
         self.trainable = trainable
-        if self.kernels is None:
+        if reset_params or self.kernels is None:
             fan_in = self.kernel_height * self.kernel_width * self.in_channels
             scale = math.sqrt(2.0 / fan_in)
             self.kernels = scale * md.randn(
@@ -269,9 +269,9 @@ class Conv2D(OptimizableLayer):
             self.bind_param(self.kernels)
 
     # accepts two dimensional image, outputs 2 dimensional image
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         return F.convolve2d(
-            inputs,
+            x,
             self.kernels,
             padding=self.padding,
             stride=self.stride,
@@ -303,9 +303,9 @@ class MaxPooling2D(Layer):
             *out_dims, self.pool_size, self.pool_size, self.stride
         )
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         return F.maxpool2d(
-            inputs,
+            x,
             self.pool_size,
             stride=self.stride,
             forward_indices=self.forward_indices,
@@ -334,9 +334,9 @@ class MeanPooling2D(Layer):
             *out_dims, self.pool_size, self.pool_size, self.stride
         )
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
+    def forward(self, x: md.Tensor) -> md.Tensor:
         return F.meanpool2d(
-            inputs,
+            x,
             self.pool_size,
             stride=self.stride,
             forward_indices=self.forward_indices,
@@ -355,11 +355,11 @@ class ResidualBlock(OptimizableLayer):
                 continue
             self.params.extend(layer.params)
 
-    def setup(self, trainable: bool = True):
+    def setup(self, trainable: bool = True, reset_params: bool = False):
         for layer in self.layers:
             if not isinstance(layer, OptimizableLayer):
                 continue
-            layer.setup(trainable=trainable)
+            layer.setup(trainable=trainable, reset_params=reset_params)
 
     def save_layer(self, fstream):
         for layer in self.layers:
@@ -371,8 +371,8 @@ class ResidualBlock(OptimizableLayer):
             if isinstance(layer, OptimizableLayer):
                 layer.load_layer(fstream)
 
-    def forward(self, inputs: md.Tensor) -> md.Tensor:
-        y = inputs
+    def forward(self, x: md.Tensor) -> md.Tensor:
+        y = x
         for layer in self.layers:
             y = layer(y)
-        return y + inputs
+        return y + x

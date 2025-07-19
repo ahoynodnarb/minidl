@@ -225,25 +225,25 @@ class Convolve2D(ops.BinaryOpClass):
 class Dropout(ops.BinaryOpClass):
     def create_forward(self) -> mdt.BinaryFunc:
         def forward(
-            inputs: md.Tensor,
+            x: md.Tensor,
             prob: float,
             auto_scale: bool = True,
             trainable: bool = False,
         ) -> md.Tensor:
             if not trainable:
-                return inputs
+                return x
 
-            self.mask = md.binomial(1, 1 - prob, inputs.shape)
+            self.mask = md.binomial(1, 1 - prob, x.shape)
             if auto_scale:
-                return md.where(self.mask == 0, 0, inputs / prob)
+                return md.where(self.mask == 0, 0, x / prob)
 
-            return md.where(self.mask == 0, 0, inputs)
+            return md.where(self.mask == 0, 0, x)
 
         return forward
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
         def grad_wrt_x(
-            inputs: md.Tensor,
+            x: md.Tensor,
             prob: float,
             grad: md.Tensor,
             auto_scale: bool = True,
@@ -261,7 +261,7 @@ class Dropout(ops.BinaryOpClass):
 class BatchNormalization(ops.TernaryOpClass):
     def create_forward(self) -> mdt.TernaryFunc:
         def forward(
-            inputs: md.Tensor,
+            x: md.Tensor,
             gamma: md.Tensor,
             beta: md.Tensor,
             epsilon: float = 1e-3,
@@ -270,15 +270,15 @@ class BatchNormalization(ops.TernaryOpClass):
             moving_means: Optional[md.Tensor] = None,
             moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
-            n_dimensions = inputs.shape[-1]
+            n_dimensions = x.shape[-1]
 
             if moving_means is None:
                 moving_means = md.zeros(n_dimensions)
             if moving_variances is None:
                 moving_variances = md.ones(n_dimensions)
 
-            normalized_dimensions = tuple(range(inputs.ndim - 1))
-            dummy_dims = [1] * (len(inputs.shape) - 1)
+            normalized_dimensions = tuple(range(x.ndim - 1))
+            dummy_dims = [1] * (len(x.shape) - 1)
             gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
             beta_reshaped = beta.reshape((*dummy_dims, n_dimensions))
 
@@ -288,16 +288,16 @@ class BatchNormalization(ops.TernaryOpClass):
                     (*dummy_dims, n_dimensions)
                 )
 
-                normalized = (inputs - means_reshaped) / md.sqrt(
+                normalized = (x - means_reshaped) / md.sqrt(
                     variances_reshaped + epsilon
                 )
 
                 return normalized * gamma_reshaped + beta_reshaped
 
             means = md.mean(
-                inputs, axis=normalized_dimensions, keepdims=True
+                x, axis=normalized_dimensions, keepdims=True
             )  # returns mu for each dimension of input
-            self.mean_deviation = inputs - means
+            self.mean_deviation = x - means
             variances = md.mean(
                 md.square(self.mean_deviation),
                 axis=normalized_dimensions,
@@ -323,7 +323,7 @@ class BatchNormalization(ops.TernaryOpClass):
         self,
     ) -> Tuple[mdt.TernaryOpGrad, mdt.TernaryOpGrad, mdt.TernaryOpGrad]:
         def compute_grad_wrt_x(
-            inputs: md.Tensor,
+            x: md.Tensor,
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
@@ -334,10 +334,10 @@ class BatchNormalization(ops.TernaryOpClass):
             moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
             if not trainable:
-                n_dimensions = inputs.shape[-1]
+                n_dimensions = x.shape[-1]
                 if moving_variances is None:
                     moving_variances = md.ones(n_dimensions)
-                dummy_dims = [1] * (len(inputs.shape) - 1)
+                dummy_dims = [1] * (len(x.shape) - 1)
                 gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
                 variances_reshaped = moving_variances.reshape(
                     (*dummy_dims, n_dimensions)
@@ -384,7 +384,7 @@ class BatchNormalization(ops.TernaryOpClass):
             return grad_input
 
         def compute_grad_wrt_gamma(
-            inputs: md.Tensor,
+            x: md.Tensor,
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
@@ -395,19 +395,19 @@ class BatchNormalization(ops.TernaryOpClass):
             moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
             if not trainable:
-                n_dimensions = inputs.shape[-1]
+                n_dimensions = x.shape[-1]
                 if moving_variances is None:
                     moving_variances = md.ones(n_dimensions)
                 if moving_means is None:
                     moving_means = md.zeros(n_dimensions)
 
-                dummy_dims = [1] * (len(inputs.shape) - 1)
+                dummy_dims = [1] * (len(x.shape) - 1)
                 means_reshaped = moving_means.reshape((*dummy_dims, n_dimensions))
                 variances_reshaped = moving_variances.reshape(
                     (*dummy_dims, n_dimensions)
                 )
 
-                normalized = (inputs - means_reshaped) / md.sqrt(
+                normalized = (x - means_reshaped) / md.sqrt(
                     variances_reshaped + epsilon
                 )
                 return grad * normalized
@@ -416,7 +416,7 @@ class BatchNormalization(ops.TernaryOpClass):
             return md.sum(grad * self.x_hat, axis=normalized_dimensions)
 
         def compute_grad_wrt_beta(
-            inputs: md.Tensor,
+            x: md.Tensor,
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
@@ -435,14 +435,14 @@ class BatchNormalization(ops.TernaryOpClass):
 class MaxPooling2D(ops.BinaryOpClass):
     def setup(
         self,
-        inputs: md.Tensor,
+        x: md.Tensor,
         pool_size: int,
         stride: Optional[int] = None,
         forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
     ):
         self.stride = pool_size if stride is None else stride
 
-        _, in_height, in_width, _ = inputs.shape
+        _, in_height, in_width, _ = x.shape
         self.in_dims = (in_height, in_width)
         self.out_dims = calculate_convolved_dimensions(
             in_height, in_width, pool_size, pool_size, self.stride
@@ -478,20 +478,18 @@ class MaxPooling2D(ops.BinaryOpClass):
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward(
-            inputs: md.Tensor,
+            x: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
             forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(
-                inputs, pool_size, stride=stride, forward_indices=forward_indices
-            )
+            self.setup(x, pool_size, stride=stride, forward_indices=forward_indices)
 
-            batch_size, _, _, in_channels = inputs.shape
+            batch_size, _, _, in_channels = x.shape
 
             row_indices, col_indices = self.forward_indices
 
-            as_cols = inputs[:, row_indices, col_indices, :]
+            as_cols = x[:, row_indices, col_indices, :]
 
             flat_indices = md.argmax(as_cols, axis=1, keepdims=True)
             # add precomputed offsets to the indices since flat_indices gives coordinates relative to individual patches.
@@ -508,7 +506,7 @@ class MaxPooling2D(ops.BinaryOpClass):
 
             out_shape = (batch_size, *self.out_dims, in_channels)
             # finally, actually index and return this
-            max_values = inputs[
+            max_values = x[
                 batch_indices, row_max_indices, col_max_indices, channel_indices
             ].reshape(out_shape)
             self.prev_indices = (
@@ -524,11 +522,11 @@ class MaxPooling2D(ops.BinaryOpClass):
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
         def compute_grad_wrt_x(
-            inputs: md.Tensor,
+            x: md.Tensor,
             pool_size: int,
             grad: md.Tensor,
         ) -> md.Tensor:
-            batch_size, _, _, in_channels = inputs.shape
+            batch_size, _, _, in_channels = x.shape
 
             batch_indices, row_max_indices, col_max_indices, channel_indices = (
                 self.prev_indices
@@ -536,7 +534,7 @@ class MaxPooling2D(ops.BinaryOpClass):
 
             # the gradient for every element that is not the max is zeroed out, this is kind of
             # like a blank canvas before we paint on the gradients
-            zeros = md.zeros_like(inputs)
+            zeros = md.zeros_like(x)
             flattened_grad = grad.reshape((batch_size, 1, -1, in_channels))
 
             # similar to forward function, just assigning at these indices instead
@@ -553,12 +551,12 @@ class MaxPooling2D(ops.BinaryOpClass):
 class MeanPooling2D(ops.BinaryOpClass):
     def setup(
         self,
-        inputs: md.Tensor,
+        x: md.Tensor,
         pool_size: int,
         stride: Optional[int] = None,
         forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
     ):
-        _, in_height, in_width, _ = inputs.shape
+        _, in_height, in_width, _ = x.shape
         self.stride = pool_size if stride is None else stride
 
         self.in_dims = (in_height, in_width)
@@ -574,22 +572,20 @@ class MeanPooling2D(ops.BinaryOpClass):
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward(
-            inputs: md.Tensor,
+            x: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
             forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(
-                inputs, pool_size, stride=stride, forward_indices=forward_indices
-            )
-            batch_size, _, _, in_channels = inputs.shape
+            self.setup(x, pool_size, stride=stride, forward_indices=forward_indices)
+            batch_size, _, _, in_channels = x.shape
 
             out_shape = (batch_size, *self.out_dims, in_channels)
 
             row_indices, col_indices = self.forward_indices
 
-            # transform inputs into column vectors of patches
-            as_cols = inputs[:, row_indices, col_indices, :]
+            # transform x into column vectors of patches
+            as_cols = x[:, row_indices, col_indices, :]
 
             averaged = md.mean(as_cols, axis=1, keepdims=True)
             return averaged.reshape(out_shape)
@@ -598,7 +594,7 @@ class MeanPooling2D(ops.BinaryOpClass):
 
     def create_grads(self) -> Tuple[mdt.BinaryOpGrad, None]:
         def compute_grad_wrt_x(
-            inputs: md.Tensor,
+            x: md.Tensor,
             pool_size: int,
             grad: md.Tensor,
         ) -> md.Tensor:
@@ -607,7 +603,7 @@ class MeanPooling2D(ops.BinaryOpClass):
             flattened_grad = grad.reshape(
                 (batch_size, 1, grad_height * grad_width, in_channels)
             )
-            grad_wrt_x = md.zeros_like(inputs)
+            grad_wrt_x = md.zeros_like(x)
             row_indices, col_indices = self.forward_indices
             grad_wrt_x[:, row_indices, col_indices, :] = flattened_grad / (
                 pool_size * pool_size
@@ -669,11 +665,13 @@ class CrossEntropy(ops.BinaryOpClass):
             y_true, y_pred = self.process_inputs(
                 y_true, y_pred, from_logits=from_logits, smoothing=smoothing
             )
+
             if from_logits:
                 lse = log_sum_exp(y_pred)
                 loss = -(y_true * (y_pred - lse))
             else:
                 loss = -(y_true * md.log(y_pred))
+
             return md.sum(loss, axis=-1, keepdims=True) / y_pred.shape[0]
 
         return forward
@@ -781,14 +779,6 @@ class MeanSquaredError(ops.BinaryOpClass):
         return (None, compute_grad_wrt_x)
 
 
-def linear_forward(x: md.Tensor) -> md.Tensor:
-    return x
-
-
-def linear_grad(x: md.Tensor, grad: md.Tensor) -> md.Tensor:
-    return grad
-
-
 def softmax_forward(x: md.Tensor) -> md.Tensor:
     # subtracting the maximum keeps the exponentiated values low
     # after doing the algebra, the results are the same
@@ -874,11 +864,6 @@ mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
         tensor_only=True,
         op_name="mean_squared_error",
     )
-)
-linear: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
-    forward_func=linear_forward,
-    grad=linear_grad,
-    op_name="linear",
 )
 softmax: Callable[[md.Tensor], md.Tensor] = ops.create_unary_op_func(
     forward_func=softmax_forward,

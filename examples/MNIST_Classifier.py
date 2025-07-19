@@ -35,6 +35,7 @@ def train_network(network):
 
     training_labels = format_labels(training_labels)
 
+    network.trainable = True
     network.train(training_images, training_labels, batch_size=64, epochs=50)
 
 
@@ -45,6 +46,7 @@ def test_network(network):
     testing_images = md.Tensor(testing_images) / 255.0
 
     testing_labels = format_labels(md.Tensor(testing_labels))
+    network.trainable = False
     network.test(testing_images, testing_labels, batch_size=64)
 
 
@@ -75,11 +77,11 @@ if __name__ == "__main__":
     network.set_layers(
         ExpandingLayer((28, 28, 1)),
         Conv2D(28, 28, 1, padding=2, n_kernels=5, kernel_size=5, stride=1),
+        Dropout(0.25),
         ActivationLayer(ReLU()),
         FlatteningLayer((28, 28, 5)),
         Dense(256, 28 * 28 * 5),
         ActivationLayer(ReLU()),
-        Dropout(0.25),
         Dense(10, 256),
     )
     try:
