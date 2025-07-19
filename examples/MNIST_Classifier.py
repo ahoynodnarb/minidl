@@ -35,31 +35,33 @@ def train_network(network):
 
     training_labels = format_labels(training_labels)
 
-    network.train(training_images, training_labels, batch_size=64, epochs=1000)
+    network.train(training_images, training_labels, batch_size=64, epochs=50)
 
 
 def test_network(network):
-    network.trainable = False
     data = MNIST("./examples/MNIST/")
+
     testing_images, testing_labels = data.load_testing()
-    testing_images = md.array(testing_images) / 255.0
-    testing_labels = format_labels(md.array(testing_labels))
-    network.test(testing_images, testing_labels, batch_size=32)
+    testing_images = md.Tensor(testing_images) / 255.0
+
+    testing_labels = format_labels(md.Tensor(testing_labels))
+    network.test(testing_images, testing_labels, batch_size=64)
 
 
 def test_dataset_at_index(network, index):
     import cv2
 
-    network.trainable = False
     data = MNIST("./examples/MNIST/")
     testing_images, testing_labels = data.load_testing()
-    test_image = md.array(testing_images[index])
+
+    test_image = md.Tensor(testing_images[index])
     test_label = testing_labels[index]
+
     pred = network(test_image / 255.0)
     print(f"prediction: {md.argmax(pred)}")
     print(f"actual: {test_label}")
-    cv_image = test_image.astype(md.uint8).reshape((28, 28))
 
+    cv_image = test_image.astype(md.uint8).reshape((28, 28))
     cv2.imshow(f"MNIST Test Dataset entry {index}", cv_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -79,11 +81,6 @@ if __name__ == "__main__":
         ActivationLayer(ReLU()),
         Dropout(0.25),
         Dense(10, 256),
-        # ExpandingLayer((28, 28, 1)),
-        # Conv2D(28, 28, 1, padding=1, n_kernels=5, kernel_size=3, stride=1),
-        # ActivationLayer(ReLU()),
-        # FlatteningLayer((28, 28, 5)),
-        # Dense(10, 28 * 28 * 5),
     )
     try:
         train_network(network)

@@ -7,7 +7,7 @@ import minidiff as md
 from tqdm import tqdm
 
 if TYPE_CHECKING:
-    from typing import Callable, List, Optional
+    from typing import Callable, List, Optional, Tuple
 
     from minidl.layers import Layer, Optimizer
 
@@ -112,6 +112,7 @@ class NeuralNetwork:
         val_labels: Optional[md.Tensor] = None,
         norm_func: Callable[[md.Tensor], md.Tensor] = None,
         aug_func: Callable[[md.Tensor], md.Tensor] = None,
+        print_output: bool = True,
     ):
         self.trainable = True
         self.setup_layers()
@@ -127,13 +128,9 @@ class NeuralNetwork:
             train_data, train_labels = data[train_indices], labels[train_indices]
             val_data, val_labels = data[val_indices], labels[val_indices]
 
-        if norm_func is not None:
-            val_data = norm_func(val_data)
-
-        batched_val_data = split_batches(val_data, batch_size)
-        batched_val_labels = split_batches(val_labels, batch_size)
-
         for epoch in range(epochs):
+            self.trainable = True
+
             shuffled_train_data, shuffled_train_labels = shuffle_dataset(
                 train_data, train_labels
             )
@@ -146,17 +143,19 @@ class NeuralNetwork:
             batched_train_data = split_batches(shuffled_train_data, batch_size)
             batched_train_labels = split_batches(shuffled_train_labels, batch_size)
 
-            self.trainable = True
+            dataset = zip(batched_train_data, batched_train_labels)
+            if print_output:
+                dataset = tqdm(
+                    dataset,
+                    desc=f"Epoch #{epoch + 1}",
+                    total=len(batched_train_data),
+                    bar_format="{l_bar}{bar:30}{r_bar}",
+                )
+
             total_training_correct = 0
             total_training_loss = 0
 
-            progress = tqdm(
-                zip(batched_train_data, batched_train_labels),
-                total=len(batched_train_data),
-                bar_format="{l_bar}{bar:30}{r_bar}",
-            )
-            progress.set_description(f"Epoch #{epoch + 1}")
-            for x, y_true in progress:
+            for x, y_true in dataset:
                 y_pred = self(x)
 
                 loss = self.loss_function(y_true, y_pred)
@@ -169,21 +168,13 @@ class NeuralNetwork:
                     )
                     total_training_loss += md.sum(loss).item()
 
-            with md.no_grad():
-                self.trainable = False
-                total_val_correct = 0
-                total_val_loss = 0
-                for x, y_true in zip(batched_val_data, batched_val_labels):
-                    val_pred = self(x)
-                    total_val_correct += self.loss_function.total_correct(
-                        y_true, val_pred
-                    )
-                    total_val_loss += md.sum(
-                        self.loss_function(y_true, val_pred)
-                    ).item()
-
-            val_acc = total_val_correct / len(val_data)
-            avg_val_loss = total_val_loss / len(val_data)
+            val_acc, avg_val_loss = self.test(
+                val_data,
+                val_labels,
+                batch_size=batch_size,
+                norm_func=norm_func,
+                print_output=False,
+            )
 
             training_acc = total_training_correct / len(train_data)
             avg_training_loss = total_training_loss / len(train_data)
@@ -193,22 +184,23 @@ class NeuralNetwork:
                     for optimizer in optimizers:
                         optimizer.update_state(epoch, avg_val_loss)
 
-            print(
-                f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
-                sep="\n",
-            )
-            print(
-                f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
-                sep="\n",
-            )
-            print(
-                f"Training accuracy at the end of epoch {epoch + 1}: {training_acc}",
-                sep="\n",
-            )
-            print(
-                f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
-                sep="\n",
-            )
+            if print_output:
+                print(
+                    f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
+                    sep="\n",
+                )
+                print(
+                    f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
+                    sep="\n",
+                )
+                print(
+                    f"Training accuracy at the end of epoch {epoch + 1}: {training_acc}",
+                    sep="\n",
+                )
+                print(
+                    f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
+                    sep="\n",
+                )
 
     def test(
         self,
@@ -216,7 +208,8 @@ class NeuralNetwork:
         testing_labels: md.Tensor,
         batch_size: int = 1,
         norm_func: Callable[[md.Tensor], md.Tensor] = None,
-    ):
+        print_output: bool = True,
+    ) -> Tuple[float, float]:
         self.trainable = False
 
         if norm_func is not None:
@@ -225,25 +218,38 @@ class NeuralNetwork:
         batched_testing_data = split_batches(testing_data, batch_size)
         batched_testing_labels = split_batches(testing_labels, batch_size)
 
+        dataset = zip(batched_testing_data, batched_testing_labels)
+        if print_output:
+            dataset = tqdm(
+                dataset,
+                desc="Testing",
+                total=len(batched_testing_data),
+                bar_format="{l_bar}{bar:30}{r_bar}",
+            )
+
         total_testing_correct = 0
         total_testing_loss = 0
 
-        progress = tqdm(
-            zip(batched_testing_data, batched_testing_labels),
-            total=len(batched_testing_data),
-            bar_format="{l_bar}{bar:30}{r_bar}",
-        )
-        for x, y_true in progress:
-            progress.set_description("Testing...")
-            y_pred = self(x)
+        with md.no_grad():
+            for x, y_true in dataset:
+                y_pred = self(x)
 
-            total_testing_correct += self.loss_function.total_correct(y_true, y_pred)
-            total_testing_loss += md.sum(self.loss_function(y_true, y_pred))
+                total_testing_correct += self.loss_function.total_correct(
+                    y_true, y_pred
+                )
+                total_testing_loss += md.sum(self.loss_function(y_true, y_pred)).item()
 
-        print(
-            f"Total testing accuracy: {total_testing_correct / len(testing_data)}",
-            sep="\n",
-        )
-        print(
-            f"Average testing loss: {total_testing_loss / len(testing_data)}", sep="\n"
-        )
+        acc = total_testing_correct / len(testing_data)
+        avg_loss = total_testing_loss / len(testing_data)
+
+        if print_output:
+            print(
+                f"Total testing accuracy: {acc}",
+                sep="\n",
+            )
+            print(
+                f"Average testing loss: {avg_loss}",
+                sep="\n",
+            )
+
+        return acc, avg_loss
