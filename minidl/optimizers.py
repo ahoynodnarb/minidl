@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 import minidiff as md
+
+if TYPE_CHECKING:
+    from typing import List, Literal
 
 
 class Optimizer:
@@ -115,15 +121,15 @@ class LRScheduler(Optimizer):
     def __init__(self, optimizer: Optimizer):
         raise NotImplementedError
 
-    def update_state(self, current_epoch, current_metric):
+    def update_state(self, current_epoch: int, current_metric: float):
         raise NotImplementedError
 
     @property
-    def learning_rate(self):
+    def learning_rate(self) -> float:
         return self.optimizer.learning_rate
 
     @learning_rate.setter
-    def learning_rate(self, learning_rate):
+    def learning_rate(self, learning_rate: float):
         self.optimizer.learning_rate = learning_rate
 
 
@@ -132,14 +138,14 @@ class ReduceLROnPlateau(LRScheduler):
     def __init__(
         self,
         optimizer: Optimizer,
-        mode="min",
-        factor=0.1,
-        patience=5,
-        threshold=1e-3,
-        threshold_mode="rel",
-        cooldown=0,
-        min_lr=0,
-        epsilon=1e-8,
+        mode: Literal["min", "max"] = "min",
+        factor: float = 0.1,
+        patience: int = 5,
+        threshold: float = 1e-3,
+        threshold_mode: Literal["rel", "abs"] = "rel",
+        cooldown: int = 0,
+        min_lr: float = 0,
+        epsilon: float = 1e-8,
     ):
         self.optimizer = optimizer
         self.mode = mode
@@ -161,14 +167,14 @@ class ReduceLROnPlateau(LRScheduler):
         )  # this keeps track of the last time we updated the optimizer
         self.update_lr = False
 
-    def dynamic_thresh(self):
+    def dynamic_thresh(self) -> float:
         thresh_term = self.threshold if self.mode == "max" else -self.threshold
         if self.threshold_mode == "rel":
             return self.best * (1 + thresh_term)
         else:
             return self.best + thresh_term
 
-    def update_state(self, current_epoch, current_metric):
+    def update_state(self, current_epoch: int, current_metric: float):
         # update the worst metric we've seen before computing our dynamic threshold
         currently_performing_well = (
             current_metric > self.best
@@ -198,7 +204,7 @@ class ReduceLROnPlateau(LRScheduler):
             self.intolerable_epochs = 0
             self.last_updated_epoch = current_epoch
 
-    def update(self, param, **kwargs):
+    def update(self, param: md.Tensor, **kwargs):
         if self.update_lr:
             self.update_lr = False
             cur_lr = self.optimizer.learning_rate
@@ -212,7 +218,7 @@ class ReduceLROnPlateau(LRScheduler):
 
 
 class CosineAnnealingLR(LRScheduler):
-    def __init__(self, optimizer: Optimizer, max_epochs=20):
+    def __init__(self, optimizer: Optimizer, max_epochs: int = 20):
         self.optimizer = optimizer
         self.max_epochs = max_epochs
 
@@ -220,12 +226,12 @@ class CosineAnnealingLR(LRScheduler):
         self.stop = False
         self.initial_lr = self.optimizer.learning_rate
 
-    def update_state(self, current_epoch, current_metric):
+    def update_state(self, current_epoch: int, current_metric: float):
         if current_epoch > self.max_epochs:
             self.stopped = True
         self.current_epoch = current_epoch
 
-    def update(self, param, **kwargs):
+    def update(self, param: md.Tensor, **kwargs):
         if not self.stopped:
             self.optimizer.learning_rate = (
                 self.initial_lr
@@ -239,9 +245,9 @@ class LinearLR(LRScheduler):
     def __init__(
         self,
         optimizer: Optimizer,
-        start_factor=0.01,
-        end_factor=1.0,
-        total_iterations=5,
+        start_factor: float = 0.01,
+        end_factor: float = 1.0,
+        total_iterations: int = 5,
     ):
         self.optimizer = optimizer
         self.start_factor = start_factor
@@ -252,13 +258,13 @@ class LinearLR(LRScheduler):
         self.stopped = False
         self.iterations = 0
 
-    def update_state(self, current_epoch, current_metric):
+    def update_state(self, current_epoch: int, current_metric: float):
         if self.iterations >= self.total_iterations:
             self.stopped = True
         else:
             self.iterations += 1
 
-    def update(self, param, **kwargs):
+    def update(self, param: md.Tensor, **kwargs):
         if not self.stopped:
             self.optimizer.learning_rate = self.initial_lr * (
                 (1 - self.iterations / self.total_iterations) * self.start_factor
@@ -269,16 +275,18 @@ class LinearLR(LRScheduler):
         return self.optimizer.update(param, **kwargs)
 
     @property
-    def learning_rate(self):
+    def learning_rate(self) -> float:
         return self.optimizer.learning_rate
 
     @learning_rate.setter
-    def learning_rate(self, learning_rate):
+    def learning_rate(self, learning_rate: float):
         self.optimizer.learning_rate = learning_rate
 
 
 class SequentialLR(LRScheduler):
-    def __init__(self, optimizer: Optimizer, schedulers, milestones):
+    def __init__(
+        self, optimizer: Optimizer, schedulers: List[LRScheduler], milestones: List[int]
+    ):
         self.optimizer = optimizer
         self.schedulers = schedulers
         self.milestones = milestones
@@ -286,7 +294,7 @@ class SequentialLR(LRScheduler):
         self.iterations = 0
         self.idx = 0
 
-    def update_state(self, current_epoch, current_metric):
+    def update_state(self, current_epoch: int, current_metric: float):
         if self.idx >= len(self.milestones):
             return
 
@@ -298,6 +306,6 @@ class SequentialLR(LRScheduler):
             self.iterations += 1
         self.schedulers[self.idx].update_state(current_epoch, current_metric)
 
-    def update(self, param, **kwargs):
+    def update(self, param: md.Tensor, **kwargs):
         cur_scheduler = self.schedulers[self.idx]
         return cur_scheduler.update(param, **kwargs)

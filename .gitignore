@@ -8,5 +8,6 @@ build/
 MNIST/
 cifar-10-batches-py/
 .DS_Store
+verify_gradients.py
 **.npy
 **test**.py

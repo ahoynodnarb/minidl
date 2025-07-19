@@ -1,22 +1,25 @@
+from __future__ import annotations
+
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
 import minidiff as md
 from tqdm import tqdm
 
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
-    from typing import List
+    from typing import Callable, List, Optional
 
-from minidl.layers import OptimizableLayer, Layer
+    from minidl.layers import Layer, Optimizer
+
+from minidl.layers import OptimizableLayer
 from minidl.loss_functions import LossFunction
-from minidl.optimizers import LRScheduler, Optimizer
+from minidl.optimizers import LRScheduler
 from minidl.utils.data import shuffle_dataset, split_batches
 
 
 class NeuralNetwork:
     def __init__(
-        self, loss_function: LossFunction, optimizer: Optimizer, trainable=False
+        self, loss_function: LossFunction, optimizer: Optimizer, trainable: bool = False
     ):
         self.loss_function = loss_function
         self.optimizer = optimizer
@@ -25,7 +28,7 @@ class NeuralNetwork:
         self.layers_setup = False
         self.layer_optimizers: List[Optimizer] = []
 
-    def __call__(self, inputs):
+    def __call__(self, inputs: md.Tensor) -> md.Tensor:
         return self.feed_forward(inputs)
 
     def save_network(self, filename):
@@ -43,27 +46,27 @@ class NeuralNetwork:
                 layer.load_layer(f)
 
     @property
-    def trainable(self):
+    def trainable(self) -> bool:
         return self._trainable
 
     @trainable.setter
-    def trainable(self, trainable):
+    def trainable(self, trainable: bool):
         self._trainable = trainable
         for layer in self.layers:
             layer.trainable = trainable
 
     @property
-    def layers(self):
+    def layers(self) -> List[Layer]:
         return self._layers
 
     @layers.setter
-    def layers(self, layers):
+    def layers(self, layers: List[Layer]):
         self._layers = []
         for layer in layers:
             layer.trainable = self.trainable
             self._layers.append(layer)
 
-    def setup_layers(self, force=False):
+    def setup_layers(self, force: bool = False):
         with md.no_grad():
             for layer in self.layers:
                 should_setup = not self.layers_setup or force
@@ -80,10 +83,10 @@ class NeuralNetwork:
 
         self.layers_setup = True
 
-    def set_layers(self, *layers):
+    def set_layers(self, *layers: Layer):
         self.layers = layers
 
-    def feed_forward(self, inputs):
+    def feed_forward(self, inputs: md.Tensor) -> md.Tensor:
         for layer in self.layers:
             inputs = layer.forward(inputs)
         return inputs
@@ -101,14 +104,14 @@ class NeuralNetwork:
 
     def train(
         self,
-        data,
-        labels,
-        batch_size=1,
-        epochs=1,
-        val_data=None,
-        val_labels=None,
-        norm_func=None,
-        aug_func=None,
+        data: md.Tensor,
+        labels: md.Tensor,
+        batch_size: int = 1,
+        epochs: int = 1,
+        val_data: Optional[md.Tensor] = None,
+        val_labels: Optional[md.Tensor] = None,
+        norm_func: Callable[[md.Tensor], md.Tensor] = None,
+        aug_func: Callable[[md.Tensor], md.Tensor] = None,
     ):
         self.trainable = True
         self.setup_layers()
@@ -207,7 +210,13 @@ class NeuralNetwork:
                 sep="\n",
             )
 
-    def test(self, testing_data, testing_labels, batch_size=1, norm_func=None):
+    def test(
+        self,
+        testing_data: md.Tensor,
+        testing_labels: md.Tensor,
+        batch_size: int = 1,
+        norm_func: Callable[[md.Tensor], md.Tensor] = None,
+    ):
         self.trainable = False
 
         if norm_func is not None:

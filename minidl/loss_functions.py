@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import minidiff as md
+
 import minidl.functions as F
 
 
@@ -54,7 +57,9 @@ class MeanSquaredError(LossFunction):
     def __call__(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
         return F.mean_squared_error(y_true, y_pred)
 
-    def total_correct(self, y_true, y_pred, tolerance=0.1) -> int:
+    def total_correct(
+        self, y_true: md.Tensor, y_pred: md.Tensor, tolerance: float = 0.1
+    ) -> int:
         overlap = md.abs(y_true - y_pred) < tolerance
         total_correct = md.sum(overlap).item()
         return total_correct

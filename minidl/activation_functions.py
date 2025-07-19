@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import minidiff as md
+
 import minidl.functions as F
 
 
@@ -25,7 +28,7 @@ class ReLU(ActivationFunction):
 
 
 class LeakyReLU(ActivationFunction):
-    def __init__(self, alpha=0.01):
+    def __init__(self, alpha: float = 0.01):
         self.alpha = alpha
 
     def __call__(self, x: md.Tensor) -> md.Tensor:
