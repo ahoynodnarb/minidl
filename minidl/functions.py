@@ -29,6 +29,20 @@ def log_sum_exp(x: md.Tensor) -> md.Tensor:
     return lse
 
 
+def preprocess_inputs(
+    y_true: md.Tensor, y_pred: md.Tensor, from_logits: bool, smoothing: float
+) -> Tuple[md.Tensor, md.Tensor]:
+    if smoothing > 0:
+        n_classes = y_true.shape[-1]
+        y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
+
+    if not from_logits:
+        # using more unstable method, need to avoid division by 0
+        y_pred = y_pred.clip(1e-8, None)
+
+    return y_true, y_pred
+
+
 # layer functions
 class Convolve2D(ops.BinaryOpClass):
     def setup(
@@ -614,169 +628,89 @@ class MeanPooling2D(ops.BinaryOpClass):
 
 
 # loss functions
-class CrossEntropy(ops.BinaryOpClass):
-    def setup(
-        self,
-        y_true: md.Tensor,
-        y_pred: md.Tensor,
-        from_logits: bool = False,
-        smoothing: Union[int, float] = 0,
-    ):
-        if y_true is None:
-            raise ValueError("Empty ground truth array")
-        if y_true.shape != y_pred.shape:
-            raise ValueError("y_true and y_pred must have the same shape")
+def ce_forward(
+    y_true: md.Tensor,
+    y_pred: md.Tensor,
+    from_logits: bool = False,
+    smoothing: float = 0.0,
+) -> md.Tensor:
+    y_true, y_pred = preprocess_inputs(
+        y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+    )
 
-        if smoothing <= 0:
-            self.y_true = y_true
-        else:
-            n_classes = y_true.shape[-1]
-            self.y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
+    if from_logits:
+        lse = log_sum_exp(y_pred)
+        loss = -(y_true * (y_pred - lse))
+    else:
+        loss = -(y_true * md.log(y_pred))
 
-        if from_logits:
-            self.y_pred = y_pred
-        else:
-            # using more unstable method, need to avoid division by 0
-            self.y_pred = y_pred.clip(1e-8, None)
-
-        self.from_logits = from_logits
-
-    def process_inputs(
-        self, y_true: md.Tensor, y_pred: md.Tensor, from_logits: bool, smoothing: float
-    ) -> Tuple[md.Tensor, md.Tensor]:
-        if smoothing > 0:
-            n_classes = y_true.shape[-1]
-            y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
-
-        if not from_logits:
-            # using more unstable method, need to avoid division by 0
-            y_pred = y_pred.clip(1e-8, None)
-
-        return y_true, y_pred
-
-    def create_forward(self) -> mdt.BinaryFunc:
-        # formula for cross entropy loss is sum(y_true * -log(y_pred))
-        def forward(
-            y_true: md.Tensor,
-            y_pred: md.Tensor,
-            from_logits: bool = False,
-            smoothing: float = 0,
-        ) -> md.Tensor:
-            y_true, y_pred = self.process_inputs(
-                y_true, y_pred, from_logits=from_logits, smoothing=smoothing
-            )
-
-            if from_logits:
-                lse = log_sum_exp(y_pred)
-                loss = -(y_true * (y_pred - lse))
-            else:
-                loss = -(y_true * md.log(y_pred))
-
-            return md.sum(loss, axis=-1, keepdims=True) / y_pred.shape[0]
-
-        return forward
-
-    def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(
-            y_true, y_pred, grad, from_logits: bool = False, smoothing: float = 0
-        ) -> md.Tensor:
-            y_true, y_pred = self.process_inputs(
-                y_true, y_pred, from_logits=from_logits, smoothing=smoothing
-            )
-            # more numerically stable than -y_true / y_pred
-            # don't need to sum these since they'll be automatically broadcasted in the backward pass
-            # CE = -self.y_true * (x - log(sum(e^x)))
-            # dCE/dx = -self.y_true * (1 - softmax(x))
-            if from_logits:
-                probs = softmax(y_pred)
-                loss_grad = grad * (probs - y_true) / y_pred.shape[0]
-            else:
-                loss_grad = grad * (-y_true / y_pred) / y_pred.shape[0]
-
-            return loss_grad
-
-        return (None, compute_grad_wrt_x)
+    return md.sum(loss, axis=-1, keepdims=True) / len(y_true)
 
 
-class BinaryCrossEntropy(ops.BinaryOpClass):
-    def setup(
-        self,
-        y_true: md.Tensor,
-        y_pred: md.Tensor,
-        from_logits: bool = False,
-        smoothing: Union[int, float] = 0,
-    ):
-        if y_true is None:
-            raise ValueError("Empty ground truth array")
-        if y_true.shape != y_pred.shape:
-            raise ValueError("y_true and y_pred must have the same shape")
+def ce_backward(
+    y_true, y_pred, grad, from_logits: bool = False, smoothing: float = 0.0
+) -> md.Tensor:
+    y_true, y_pred = preprocess_inputs(
+        y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+    )
+    # more numerically stable than -y_true / y_pred
+    # don't need to sum these since they'll be automatically broadcasted in the backward pass
+    # CE = -self.y_true * (x - log(sum(e^x)))
+    # dCE/dx = -self.y_true * (1 - softmax(x))
+    if from_logits:
+        probs = softmax(y_pred)
+        loss_grad = grad * (probs - y_true)
+    else:
+        loss_grad = grad * (-y_true / y_pred)
 
-        if smoothing <= 0:
-            self.y_true = y_true
-        else:
-            n_classes = y_true.shape[-1]
-            self.y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
-
-        if from_logits:
-            self.y_pred = y_pred
-        else:
-            # using more unstable method, need to avoid division by 0
-            self.y_pred = y_pred.clip(1e-8, None)
-
-        self.from_logits = from_logits
-
-    def create_forward(self) -> mdt.BinaryFunc:
-        def forward(
-            y_true: md.Tensor,
-            y_pred: md.Tensor,
-            from_logits: bool = False,
-            smoothing: Union[int, float] = 0,
-        ) -> md.Tensor:
-            self.setup(y_true, y_pred, from_logits=from_logits, smoothing=smoothing)
-            if self.from_logits:
-                loss = (
-                    md.log(1 + md.exp(-self.y_pred)) + (1 - self.y_true) * self.y_pred
-                )
-            else:
-                loss = -(
-                    self.y_true * md.log(self.y_pred)
-                    + (1 - self.y_true) * md.log(1 - self.y_pred)
-                )
-
-            return md.mean(loss, axis=-1, keepdims=True)
-
-        return forward
-
-    def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(y_true, y_pred, grad) -> md.Tensor:
-            if self.from_logits:
-                loss_grad = grad * -(self.y_true - self.y_pred) / self.y_true.shape[-1]
-            else:
-                loss_grad = (
-                    grad
-                    * -((self.y_true - self.y_pred) / (self.y_pred * (1 - self.y_pred)))
-                    / self.y_true.shape[-1]
-                )
-
-            return loss_grad
-
-        return (None, compute_grad_wrt_x)
+    return loss_grad / len(y_true)
 
 
-class MeanSquaredError(ops.BinaryOpClass):
-    def create_forward(self) -> mdt.BinaryFunc:
-        def forward(y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
-            return md.mean((y_true - y_pred) ** 2, axis=-1)
+def bce_forward(
+    y_true: md.Tensor,
+    y_pred: md.Tensor,
+    from_logits: bool = False,
+    smoothing: float = 0.0,
+) -> md.Tensor:
+    y_true, y_pred = preprocess_inputs(
+        y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+    )
 
-        return forward
+    if from_logits:
+        loss = md.log(1 + md.exp(-y_pred)) + (1 - y_true) * y_pred
+    else:
+        loss = -(y_true * md.log(y_pred) + (1 - y_true) * md.log(1 - y_pred))
 
-    def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(
-            y_true: md.Tensor, y_pred: md.Tensor, grad: md.Tensor
-        ) -> md.Tensor:
-            return grad * 2 * (y_pred - y_true) / y_true.shape[-1]
+    return md.sum(loss, axis=-1, keepdims=True) / len(y_true)
 
-        return (None, compute_grad_wrt_x)
+
+def bce_backward(
+    y_true,
+    y_pred,
+    grad,
+    from_logits: bool = False,
+    smoothing: float = 0.0,
+) -> md.Tensor:
+    y_true, y_pred = preprocess_inputs(
+        y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+    )
+
+    if from_logits:
+        loss_grad = grad * -(y_true - y_pred)
+    else:
+        loss_grad = grad * -(y_true - y_pred) / (y_pred * (1 - y_pred))
+
+    return loss_grad / len(y_true)
+
+
+def mse_forward(y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
+    averaged_axes = tuple(range(1, y_true.ndim))
+    return md.mean((y_true - y_pred) ** 2, axis=averaged_axes)
+
+
+def mse_backward(y_true: md.Tensor, y_pred: md.Tensor, grad: md.Tensor) -> md.Tensor:
+    averaged_elements = math.prod(y_true.shape[1:])
+    return grad * 2 * (y_pred - y_true) / averaged_elements
 
 
 def softmax_forward(x: md.Tensor) -> md.Tensor:
@@ -843,24 +777,26 @@ meanpool2d: Callable[[md.Tensor, int], md.Tensor] = ops.create_stateful_op_func(
     op_class=MeanPooling2D,
     op_name="meanpool2d",
 )
-cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
-    ops.create_stateful_op_func(
-        op_class=CrossEntropy,
-        tensor_only=True,
-        propagate_kwargs=True,
-        op_name="cross_entropy",
-    )
+cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_binary_op_func(
+    forward_func=ce_forward,
+    grad_b=ce_backward,
+    tensor_only=True,
+    propagate_kwargs=True,
+    op_name="cross_entropy",
 )
 binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
-    ops.create_stateful_op_func(
-        op_class=BinaryCrossEntropy,
+    ops.create_binary_op_func(
+        forward_func=bce_forward,
+        grad_b=bce_backward,
         tensor_only=True,
+        propagate_kwargs=True,
         op_name="binary_cross_entropy",
     )
 )
 mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
-    ops.create_stateful_op_func(
-        op_class=MeanSquaredError,
+    ops.create_binary_op_func(
+        forward_func=mse_forward,
+        grad_b=mse_backward,
         tensor_only=True,
         op_name="mean_squared_error",
     )

@@ -4,7 +4,7 @@ import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Sequence, Tuple, Union
+    from typing import Optional, Sequence, Tuple, Union, BinaryIO
 
     import minidiff.typing as mdt
 
@@ -33,10 +33,10 @@ class OptimizableLayer(Layer):
         self.l2_lambda = l2_lambda
         self.params = []
 
-    def save_layer(self, fstream):
+    def save_layer(self, fstream: BinaryIO):
         raise NotImplementedError
 
-    def load_layer(self, fstream):
+    def load_layer(self, fstream: BinaryIO):
         raise NotImplementedError
 
     def setup(self, trainable: bool = True, reset_params: bool = False):
@@ -69,11 +69,11 @@ class Dense(OptimizableLayer):
         self.weights = None
         self.biases = None
 
-    def save_layer(self, fstream):
+    def save_layer(self, fstream: BinaryIO):
         md.save(fstream, self.weights)
         md.save(fstream, self.biases)
 
-    def load_layer(self, fstream):
+    def load_layer(self, fstream: BinaryIO):
         self.weights = md.load(fstream)
         self.biases = md.load(fstream)
 
@@ -147,13 +147,13 @@ class BatchNormalization(OptimizableLayer):
         self.gamma = None
         self.beta = None
 
-    def save_layer(self, fstream):
+    def save_layer(self, fstream: BinaryIO):
         md.save(fstream, self.gamma)
         md.save(fstream, self.beta)
         md.save(fstream, self.moving_means)
         md.save(fstream, self.moving_variances)
 
-    def load_layer(self, fstream):
+    def load_layer(self, fstream: BinaryIO):
         self.gamma = md.load(fstream)
         self.beta = md.load(fstream)
         self.moving_means = md.load(fstream)
@@ -249,10 +249,10 @@ class Conv2D(OptimizableLayer):
 
         self.kernels = None
 
-    def save_layer(self, fstream):
+    def save_layer(self, fstream: BinaryIO):
         md.save(fstream, self.kernels)
 
-    def load_layer(self, fstream):
+    def load_layer(self, fstream: BinaryIO):
         self.kernels = md.load(fstream)
 
     def setup(self, trainable: bool = True, reset_params: bool = False):
@@ -361,12 +361,12 @@ class ResidualBlock(OptimizableLayer):
                 continue
             layer.setup(trainable=trainable, reset_params=reset_params)
 
-    def save_layer(self, fstream):
+    def save_layer(self, fstream: BinaryIO):
         for layer in self.layers:
             if isinstance(layer, OptimizableLayer):
                 layer.save_layer(fstream)
 
-    def load_layer(self, fstream):
+    def load_layer(self, fstream: BinaryIO):
         for layer in self.layers:
             if isinstance(layer, OptimizableLayer):
                 layer.load_layer(fstream)
