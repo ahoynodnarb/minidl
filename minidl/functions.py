@@ -8,6 +8,8 @@ import minidiff as md
 import minidiff.ops as ops
 import minidiff.typing as mdt
 
+DEBUG = False
+
 
 def log_sum_exp(x: md.Tensor) -> md.Tensor:
     mx = md.max(x, axis=-1, keepdims=True)
@@ -86,7 +88,6 @@ def remove_padding(
 
     pad_top, pad_bottom, pad_left, pad_right = padding
 
-    # return view of padded matrix cropped around the padded boundaries
     return mat[:, pad_top : height - pad_bottom, pad_left : width - pad_right, :]
 
 
@@ -96,14 +97,12 @@ def calculate_same_padding(
     pad_vert = (height * (stride - 1) + kernel_height - stride) / 2
     pad_hori = (width * (stride - 1) + kernel_width - stride) / 2
 
-    # we can evenly pad vertically
     if isinstance(pad_vert, int):
         pad_top = pad_bottom = pad_vert
     else:
         pad_vert = int(math.floor(pad_vert))
         pad_top, pad_bottom = pad_vert, pad_vert + 1
 
-    # we can evenly pad horizontally
     if isinstance(pad_hori, int):
         pad_left = pad_right = pad_hori
     else:
@@ -289,8 +288,6 @@ class Convolve2D(ops.BinaryOpClass):
             kernels: md.Tensor,
             padding: Union[int, float, Tuple[int, int, int, int]] = 0,
             stride: int = 1,
-            # in_dims: Optional[Tuple[int, ...]] = None,
-            # out_dims: Optional[Tuple[int, ...]] = None,
             forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
             backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
             backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
@@ -321,18 +318,7 @@ class Convolve2D(ops.BinaryOpClass):
             conv_input: md.Tensor,
             kernels: md.Tensor,
             grad: md.Tensor,
-            # padding: Union[int, float, Tuple[int, int, int, int]] = 0,
-            # stride: int = 1,
-            # in_dims: Optional[Tuple[int, ...]] = None,
-            # out_dims: Optional[Tuple[int, ...]] = None,
-            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-            # backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-            # backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            # _, in_height, in_width, _ = self.conv_input.shape
-            # rotate kernels, then swap axes to match up correctly
-            # kernel_height, kernel_width = kernels.shape[1], kernels.shape[2]
-            # in_dims = (conv_input.shape[1], conv_input.shape[2])
             flipped_kernels = md.flip(md.flip(kernels, axis=1), axis=2)
             flipped_kernels = md.swapaxes(flipped_kernels, -1, 0)
 
@@ -360,13 +346,6 @@ class Convolve2D(ops.BinaryOpClass):
             conv_input: md.Tensor,
             kernels: md.Tensor,
             grad: md.Tensor,
-            # padding: Union[int, float, Tuple[int, int, int, int]] = 0,
-            # stride: int = 1,
-            # in_dims: Optional[Tuple[int, ...]] = None,
-            # out_dims: Optional[Tuple[int, ...]] = None,
-            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-            # backward_input_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
-            # backward_kern_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
             # normally, computing grad_wrt_w requires you to do convolutions for each slice of the previous outputs
             # and each slice of the gradient. But we can take advantage of batching to instead treat each slice of
@@ -400,9 +379,11 @@ class Dropout(ops.BinaryOpClass):
         ) -> md.Tensor:
             if not trainable:
                 return inputs
+
             self.mask = md.binomial(1, 1 - prob, inputs.shape)
             if auto_scale:
                 return md.where(self.mask == 0, 0, inputs / prob)
+
             return md.where(self.mask == 0, 0, inputs)
 
         return forward
@@ -592,20 +573,20 @@ class BatchNormalization(ops.TernaryOpClass):
             moving_means: Optional[md.Tensor] = None,
             moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
-
             normalized_dimensions = tuple(range(grad.ndim - 1))
-            if not trainable:
-                return md.sum(grad, axis=normalized_dimensions, keepdims=True)
-
             return md.sum(grad, axis=normalized_dimensions)
 
         return (compute_grad_wrt_x, compute_grad_wrt_gamma, compute_grad_wrt_beta)
 
 
 class MaxPooling2D(ops.BinaryOpClass):
-    def setup(self, inputs: md.Tensor, pool_size: int, stride: Optional[int] = None):
-        # self.inputs = inputs
-        # self.pool_size = pool_size
+    def setup(
+        self,
+        inputs: md.Tensor,
+        pool_size: int,
+        stride: Optional[int] = None,
+        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
+    ):
         self.stride = pool_size if stride is None else stride
 
         _, in_height, in_width, _ = inputs.shape
@@ -614,11 +595,11 @@ class MaxPooling2D(ops.BinaryOpClass):
             in_height, in_width, pool_size, pool_size, self.stride
         )
 
-        # self.in_channels = in_channels
-
-        self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, self.stride
-        )
+        if forward_indices is None:
+            forward_indices = calculate_im2col_indices(
+                *self.out_dims, pool_size, pool_size, self.stride
+            )
+        self.forward_indices = forward_indices
 
         self.row_offset, self.col_offset = self.compute_window_offsets(
             *self.out_dims, self.stride
@@ -647,27 +628,24 @@ class MaxPooling2D(ops.BinaryOpClass):
             inputs: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
+            forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(inputs, pool_size, stride=stride)
+            self.setup(
+                inputs, pool_size, stride=stride, forward_indices=forward_indices
+            )
 
             batch_size, _, _, in_channels = inputs.shape
 
             row_indices, col_indices = self.forward_indices
 
-            # transform inputs into column vectors of patches
             as_cols = inputs[:, row_indices, col_indices, :]
 
             flat_indices = md.argmax(as_cols, axis=1, keepdims=True)
-
-            # row_offset, col_offset = self.compute_window_offsets(
-            #     *self.out_dims, self.stride
-            # )
             # add precomputed offsets to the indices since flat_indices gives coordinates relative to individual patches.
             # but we need indices relative to the entire input matrix
             row_max_indices = flat_indices // pool_size + self.row_offset
             col_max_indices = flat_indices % pool_size + self.col_offset
 
-            # need these indices as placeholders to correctly index
             batch_indices = md.arange(batch_size)[
                 ..., md.newaxis, md.newaxis, md.newaxis
             ]  # shape: (batch_size, 1, 1, 1)
@@ -696,9 +674,6 @@ class MaxPooling2D(ops.BinaryOpClass):
             inputs: md.Tensor,
             pool_size: int,
             grad: md.Tensor,
-            # stride: Optional[int] = None,
-            # out_dims: Optional[Tuple[int, ...]] = None,
-            # forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
             batch_size, _, _, in_channels = inputs.shape
 
@@ -728,8 +703,8 @@ class MeanPooling2D(ops.BinaryOpClass):
         inputs: md.Tensor,
         pool_size: int,
         stride: Optional[int] = None,
+        forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
     ):
-        # self.inputs = inputs
         _, in_height, in_width, _ = inputs.shape
         self.stride = pool_size if stride is None else stride
 
@@ -738,17 +713,22 @@ class MeanPooling2D(ops.BinaryOpClass):
             in_height, in_width, pool_size, pool_size, self.stride
         )
 
-        self.forward_indices = calculate_im2col_indices(
-            *self.out_dims, pool_size, pool_size, self.stride
-        )
+        if forward_indices is None:
+            forward_indices = calculate_im2col_indices(
+                *self.out_dims, pool_size, pool_size, self.stride
+            )
+        self.forward_indices = forward_indices
 
     def create_forward(self) -> mdt.BinaryFunc:
         def forward(
             inputs: md.Tensor,
             pool_size: int,
             stride: Optional[int] = None,
+            forward_indices: Optional[Tuple[md.Tensor, md.Tensor]] = None,
         ) -> md.Tensor:
-            self.setup(inputs, pool_size, stride=stride)
+            self.setup(
+                inputs, pool_size, stride=stride, forward_indices=forward_indices
+            )
             batch_size, _, _, in_channels = inputs.shape
 
             out_shape = (batch_size, *self.out_dims, in_channels)
@@ -812,37 +792,55 @@ class CrossEntropy(ops.BinaryOpClass):
 
         self.from_logits = from_logits
 
+    def process_inputs(
+        self, y_true: md.Tensor, y_pred: md.Tensor, from_logits: bool, smoothing: float
+    ) -> Tuple[md.Tensor, md.Tensor]:
+        if smoothing > 0:
+            n_classes = y_true.shape[-1]
+            y_true = (1 - smoothing) * y_true + (smoothing / n_classes)
+
+        if not from_logits:
+            # using more unstable method, need to avoid division by 0
+            y_pred = y_pred.clip(1e-8, None)
+
+        return y_true, y_pred
+
     def create_forward(self) -> mdt.BinaryFunc:
         # formula for cross entropy loss is sum(y_true * -log(y_pred))
         def forward(
             y_true: md.Tensor,
             y_pred: md.Tensor,
             from_logits: bool = False,
-            smoothing: Union[int, float] = 0,
+            smoothing: float = 0,
         ) -> md.Tensor:
-            self.setup(y_true, y_pred, from_logits=from_logits, smoothing=smoothing)
+            y_true, y_pred = self.process_inputs(
+                y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+            )
             if from_logits:
-                lse = log_sum_exp(self.y_pred)
-                loss = -(self.y_true * (self.y_pred - lse))
+                lse = log_sum_exp(y_pred)
+                loss = -(y_true * (y_pred - lse))
             else:
-                loss = -(self.y_true * md.log(self.y_pred))
-            return md.sum(loss, axis=-1, keepdims=True)
+                loss = -(y_true * md.log(y_pred))
+            return md.sum(loss, axis=-1, keepdims=True) / y_pred.shape[0]
 
         return forward
 
     def create_grads(self) -> Tuple[None, mdt.BinaryOpGrad]:
-        def compute_grad_wrt_x(y_true, y_pred, grad) -> md.Tensor:
+        def compute_grad_wrt_x(
+            y_true, y_pred, grad, from_logits: bool = False, smoothing: float = 0
+        ) -> md.Tensor:
+            y_true, y_pred = self.process_inputs(
+                y_true, y_pred, from_logits=from_logits, smoothing=smoothing
+            )
             # more numerically stable than -y_true / y_pred
             # don't need to sum these since they'll be automatically broadcasted in the backward pass
             # CE = -self.y_true * (x - log(sum(e^x)))
             # dCE/dx = -self.y_true * (1 - softmax(x))
-            if self.from_logits:
-                mx = md.max(self.y_pred, axis=-1, keepdims=True)
-                e = md.exp(self.y_pred - mx)
-                softmax = e / md.sum(e, axis=-1, keepdims=True)
-                loss_grad = -grad * self.y_true * (1 - softmax)
+            if from_logits:
+                probs = softmax(y_pred)
+                loss_grad = grad * (probs - y_true) / y_pred.shape[0]
             else:
-                loss_grad = grad * -self.y_true / self.y_pred
+                loss_grad = grad * (-y_true / y_pred) / y_pred.shape[0]
 
             return loss_grad
 
@@ -1006,6 +1004,7 @@ cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_stateful_op_func(
         op_class=CrossEntropy,
         tensor_only=True,
+        propagate_kwargs=True,
         op_name="cross_entropy",
     )
 )
