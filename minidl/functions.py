@@ -896,7 +896,6 @@ __all__ = [
     "cross_entropy",
     "binary_cross_entropy",
     "mean_squared_error",
-    "linear",
     "softmax",
     "relu",
     "leakyrelu",
