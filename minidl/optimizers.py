@@ -15,7 +15,7 @@ class Optimizer:
     def __init__(self, learning_rate: float = 1e-3):
         raise NotImplementedError
 
-    def update(self, param: md.Tensor, l2_lambda: float = 0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0.0):
         raise NotImplementedError
 
 
@@ -26,7 +26,7 @@ class SGD(Optimizer):
         self.beta = beta
         self.velocity = None
 
-    def update(self, param: md.Tensor, l2_lambda: float = 0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0.0):
         if self.velocity is None:
             self.velocity = md.zeros_like(param)
 
@@ -56,7 +56,7 @@ class Adam(Optimizer):
         self.velocity = None
         self.t = 0
 
-    def update(self, param: md.Tensor, l2_lambda: float = 0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0.0):
         self.t += 1
         grad = param.grad
         if self.momentum is None:
@@ -94,7 +94,7 @@ class AdamW(Optimizer):
         self.velocity = None
         self.t = 0
 
-    def update(self, param: md.Tensor, l2_lambda: float = 0):
+    def update(self, param: md.Tensor, l2_lambda: float = 0.0):
         self.t += 1
         grad = param.grad
         if self.momentum is None:

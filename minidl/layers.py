@@ -29,7 +29,7 @@ class Layer:
 
 
 class OptimizableLayer(Layer):
-    def __init__(self, l2_lambda: float = 0):
+    def __init__(self, l2_lambda: float = 0.0):
         self.l2_lambda = l2_lambda
         self.params = []
 

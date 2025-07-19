@@ -17,7 +17,7 @@ class LossFunction:
 
 
 class CrossEntropy(LossFunction):
-    def __init__(self, from_logits: bool = False, smoothing: float = 0):
+    def __init__(self, from_logits: bool = False, smoothing: float = 0.0):
         self.from_logits = from_logits
         self.smoothing = smoothing
 
@@ -40,9 +40,18 @@ class CrossEntropy(LossFunction):
 
 
 class BinaryCrossEntropy(LossFunction):
+    def __init__(self, from_logits: bool = False, smoothing: float = 0.0):
+        self.from_logits = from_logits
+        self.smoothing = smoothing
+
     # y_true should be a one-hot vector
     def __call__(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
-        return F.binary_cross_entropy(y_true, y_pred)
+        return F.binary_cross_entropy(
+            y_true,
+            y_pred,
+            from_logits=self.from_logits,
+            smoothing=self.smoothing,
+        )
 
     def total_correct(self, y_true: md.Tensor, y_pred: md.Tensor) -> int:
         overlap = md.argmax(y_true, axis=-1) == md.argmax(y_pred, axis=-1)
