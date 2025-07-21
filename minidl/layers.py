@@ -4,7 +4,7 @@ import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Sequence, Tuple, Union, BinaryIO
+    from typing import BinaryIO, Optional, Sequence, Tuple, Union
 
     import minidiff.typing as mdt
 

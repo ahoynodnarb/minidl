@@ -85,8 +85,8 @@ class NeuralNetwork:
         epochs: int = 1,
         val_data: Optional[md.Tensor] = None,
         val_labels: Optional[md.Tensor] = None,
-        norm_func: Callable[[md.Tensor], md.Tensor] = None,
-        aug_func: Callable[[md.Tensor], md.Tensor] = None,
+        norm_func: Optional[Callable[[md.Tensor], md.Tensor]] = None,
+        aug_func: Optional[Callable[[md.Tensor], md.Tensor]] = None,
         print_output: bool = True,
     ):
         if not self.trainable:
