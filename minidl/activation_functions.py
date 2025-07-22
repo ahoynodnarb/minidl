@@ -12,11 +12,6 @@ class ActivationFunction:
         raise NotImplementedError
 
 
-class Linear(ActivationFunction):
-    def __call__(self, x: md.Tensor) -> md.Tensor:
-        return F.linear(x)
-
-
 class Softmax(ActivationFunction):
     def __call__(self, x: md.Tensor) -> md.Tensor:
         return F.softmax(x)
