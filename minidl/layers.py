@@ -296,7 +296,7 @@ class MaxPooling2D(Layer):
 
         # self.in_dims = (in_height, in_width)
         out_dims = calculate_convolved_dimensions(
-            in_height, in_width, self.pool_size, self.pool_size, 0, self.stride
+            in_height, in_width, self.pool_size, self.pool_size, self.stride
         )
 
         self.forward_indices = calculate_im2col_indices(

@@ -1,4 +1,4 @@
-import imgaug.augmenters as iaa
+import albumentations as A
 import minidiff as md
 
 from minidl.activation_functions import ReLU
@@ -27,6 +27,9 @@ ONE_HOT_TO_PLAINTEXT = [
     "ship",
     "truck",
 ]
+
+CIFAR10_MEANS = md.Tensor([0.49118418, 0.4825434, 0.44775498])
+CIFAR10_STDS = md.Tensor([0.2464881, 0.24259564, 0.26116827])
 
 
 def load_formatted_data(filenames):
@@ -80,10 +83,7 @@ def load_meta():
 
 
 def normalize_data(data):
-    means = md.array([0.49118418, 0.4825434, 0.44775498])
-    stds = md.array([0.2464881, 0.24259564, 0.26116827])
-    ret = (data - means) / stds
-    return ret
+    return (data - CIFAR10_MEANS) / CIFAR10_STDS
 
 
 def test(network: NeuralNetwork):
@@ -105,10 +105,11 @@ def train(network: NeuralNetwork):
     data_batch_files = [
         os.path.join(parent_directory, f"data_batch_{x + 1}") for x in range(5)
     ]
-    augmentation = iaa.Sequential(
+
+    transform = A.Compose(
         [
-            iaa.Fliplr(0.5),
-            iaa.Affine(
+            A.HorizontalFlip(p=0.5),
+            A.Affine(
                 translate_percent={
                     "x": (-0.1, 0.1),
                     "y": (-0.1, 0.1),
@@ -116,12 +117,18 @@ def train(network: NeuralNetwork):
             ),
         ]
     )
-    aug_func = lambda images: augmentation(images=images)
+
+    def aug_func(images: md.Tensor) -> md.Tensor:
+        transformed_data = transform(images=images._data)
+        transformed_images = transformed_data["images"]
+        return md.Tensor(transformed_images)
+
     training_images, training_labels = load_formatted_data(data_batch_files)
 
     testing_images, testing_labels = load_formatted_data(
         [os.path.join(parent_directory, "test_batch")]
     )
+    network.trainable = True
     network.train(
         training_images,
         training_labels,
@@ -152,7 +159,7 @@ if __name__ == "__main__":
         ),
         ActivationLayer(ReLU()),
         BatchNormalization(32),
-        MaxPooling2D(32, 32, 32, pool_size=2),
+        MaxPooling2D(32, 32, pool_size=2),
         Dropout(0.25),
         # ResidualBlock(
         Conv2D(
@@ -165,7 +172,7 @@ if __name__ == "__main__":
         ),
         ActivationLayer(ReLU()),
         BatchNormalization(64),
-        MaxPooling2D(16, 16, 64, pool_size=2),
+        MaxPooling2D(16, 16, pool_size=2),
         Dropout(0.25),
         Conv2D(
             8, 8, 64, padding=1, n_kernels=128, kernel_size=3, stride=1, l2_lambda=1e-4
@@ -177,7 +184,7 @@ if __name__ == "__main__":
         ),
         ActivationLayer(ReLU()),
         BatchNormalization(128),
-        MaxPooling2D(8, 8, 128, pool_size=2),
+        MaxPooling2D(8, 8, pool_size=2),
         Dropout(0.25),
         FlatteningLayer((4, 4, 128)),
         Dense(128, 4 * 4 * 128, l2_lambda=1e-4),
