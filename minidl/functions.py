@@ -321,8 +321,8 @@ class BatchNormalization(ops.TernaryOpClass):
 
             self.x_hat = self.mean_deviation / self.std_deviation
 
-            means_flat = means.reshape(-1)
-            variances_flat = variances.reshape(-1)
+            means_flat = means.ravel()
+            variances_flat = variances.ravel()
 
             moving_means *= momentum
             moving_means += means_flat * (1 - momentum)

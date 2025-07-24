@@ -16,6 +16,5 @@ def split_batches(data: md.Tensor, batch_size: int) -> List[md.Tensor]:
 
 
 def shuffle_dataset(data: md.Tensor, labels: md.Tensor) -> tuple[md.Tensor, md.Tensor]:
-    indices = md.arange(len(data))
-    md.shuffle(indices)
+    indices = md.permutation(len(data))
     return (data[indices], labels[indices])

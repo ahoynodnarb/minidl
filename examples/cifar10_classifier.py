@@ -49,7 +49,7 @@ def load_formatted_data(filenames):
     def convert_to_one_hot(labels, classes):
         n_labels = len(labels)
         one_hot = md.zeros((n_labels, classes))
-        one_hot[range(n_labels), labels] = 1
+        one_hot[md.arange(n_labels), labels] = 1
         return one_hot
 
     def format_images(images):

@@ -18,10 +18,10 @@ from minidl.optimizers import Adam
 # the labels are initially the actual number, which is not what we want
 # we actually want a vector where the index of the correct output is 1, and the rest are 0
 # like a probability distribution
-def format_labels(labels):
-    formatted = md.zeros((len(labels), 10))
-    for i, label in enumerate(labels):
-        formatted[i][label] = 1
+def convert_to_one_hot(labels, classes):
+    n_labels = len(labels)
+    formatted = md.zeros((n_labels, classes))
+    formatted[md.arange(n_labels), labels] = 1
     return formatted
 
 
@@ -33,7 +33,7 @@ def train_network(network):
     training_images = md.Tensor(training_images) / 255.0
     training_labels = md.Tensor(training_labels)
 
-    training_labels = format_labels(training_labels)
+    training_labels = convert_to_one_hot(training_labels, 10)
 
     network.trainable = True
     network.train(training_images, training_labels, batch_size=64, epochs=50)
@@ -44,8 +44,10 @@ def test_network(network):
 
     testing_images, testing_labels = data.load_testing()
     testing_images = md.Tensor(testing_images) / 255.0
+    testing_labels = md.Tensor(testing_labels)
 
-    testing_labels = format_labels(md.Tensor(testing_labels))
+    testing_labels = convert_to_one_hot(testing_labels, 10)
+
     network.trainable = False
     network.test(testing_images, testing_labels, batch_size=64)
 
