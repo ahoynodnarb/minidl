@@ -24,9 +24,10 @@ class NeuralNetwork:
     ):
         self.loss_function = loss_function
         self.optimizer = optimizer
+        self._trainable = trainable
+        
         self.layers: List[Layer] = []
         self.optimizable_layers: List[OptimizableLayer] = []
-        self.trainable = trainable
         self.layer_optimizers: List[Optimizer] = []
 
     def __call__(self, x: md.Tensor) -> md.Tensor:
@@ -46,6 +47,16 @@ class NeuralNetwork:
         with open(filename, "rb") as f:
             for layer in self.optimizable_layers:
                 layer.load_layer(f)
+                
+    @property
+    def trainable(self) -> bool:
+        return self._trainable
+    
+    @trainable.setter
+    def trainable(self, trainable: bool):
+        self._trainable = trainable
+        for layer in self.layers:
+            layer.trainable = trainable
 
     def update_layer_weights(self):
         for optimizers, layer in zip(self.layer_optimizers, self.optimizable_layers):
@@ -58,7 +69,7 @@ class NeuralNetwork:
         reset_optimizers = reset_params or len(self.layer_optimizers) == 0
         with md.no_grad():
             for layer in self.optimizable_layers:
-                layer.setup(trainable=self.trainable, reset_params=reset_params)
+                layer.setup(trainable=self._trainable, reset_params=reset_params)
 
                 if not reset_optimizers:
                     return
@@ -89,7 +100,7 @@ class NeuralNetwork:
         aug_func: Optional[Callable[[md.Tensor], md.Tensor]] = None,
         print_output: bool = True,
     ):
-        if not self.trainable:
+        if not self._trainable:
             raise ValueError(
                 "Can only call train() on a network that is currently trainable"
             )
@@ -148,6 +159,7 @@ class NeuralNetwork:
                 )
                 total_training_loss += md.sum(loss).item()
 
+            self.trainable = False
             val_acc, avg_val_loss = self.test(
                 val_data,
                 val_labels,
@@ -155,14 +167,16 @@ class NeuralNetwork:
                 norm_func=norm_func,
                 print_output=False,
             )
+            self.trainable = True
 
             training_acc = total_training_correct / len(train_data)
             avg_training_loss = total_training_loss / len(train_data)
 
-            if isinstance(self.optimizer, LRScheduler):
-                for optimizers in self.layer_optimizers:
-                    for optimizer in optimizers:
-                        optimizer.update_state(epoch, avg_val_loss)
+            for optimizers in self.layer_optimizers:
+                for optimizer in optimizers:
+                    if not isinstance(optimizer, LRScheduler):
+                        continue
+                    optimizer.update_state(epoch, avg_val_loss)
 
             if print_output:
                 print(

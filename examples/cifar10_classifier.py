@@ -94,7 +94,7 @@ def test(network: NeuralNetwork):
         [os.path.join(parent_directory, "test_batch")]
     )
     network.test(
-        testing_images, testing_labels, batch_size=32, norm_func=normalize_data
+        testing_images, testing_labels, batch_size=64, norm_func=normalize_data
     )
 
 
@@ -132,7 +132,7 @@ def train(network: NeuralNetwork):
     network.train(
         training_images,
         training_labels,
-        batch_size=32,
+        batch_size=64,
         epochs=50,
         norm_func=normalize_data,
         aug_func=aug_func,
@@ -142,7 +142,7 @@ def train(network: NeuralNetwork):
 
 
 if __name__ == "__main__":
-    optim = AdamW(learning_rate=1e-3)
+    optim = AdamW(learning_rate=5e-4)
     scheduler = ReduceLROnPlateau(optimizer=optim, factor=0.5, patience=3, min_lr=1e-6)
     # probably don't change dropout, increasing it gets too aggressive and the network stops learning midway through
     cross_entropy = CrossEntropy(from_logits=True, smoothing=0.05)

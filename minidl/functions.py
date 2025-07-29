@@ -265,8 +265,10 @@ class Dropout(ops.BinaryOpClass):
         ) -> md.Tensor:
             if not trainable:
                 return grad
+            
             if auto_scale:
                 return md.where(self.mask == 0, 0, grad / prob)
+            
             return md.where(self.mask == 0, 0, grad)
 
         return (grad_wrt_x, None)
@@ -278,7 +280,7 @@ class BatchNormalization(ops.TernaryOpClass):
             x: md.Tensor,
             gamma: md.Tensor,
             beta: md.Tensor,
-            epsilon: float = 1e-3,
+            epsilon: float = 1e-7,
             momentum: float = 0.99,
             trainable: bool = False,
             moving_means: Optional[md.Tensor] = None,
@@ -296,9 +298,19 @@ class BatchNormalization(ops.TernaryOpClass):
             gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
             beta_reshaped = beta.reshape((*dummy_dims, n_dimensions))
 
+            means = md.mean(
+                x, axis=normalized_dimensions, keepdims=True
+            )  # returns mu for each dimension of input
+            self.mean_deviation = x - means
+            variances = md.mean(
+                self.mean_deviation**2,
+                axis=normalized_dimensions,
+                keepdims=True,
+            )  # returns sigma^2 for each input
+            
             if not trainable:
-                means_reshaped = moving_means.reshape((*dummy_dims, n_dimensions))
-                variances_reshaped = moving_variances.reshape(
+                means_reshaped = means.reshape((*dummy_dims, n_dimensions))
+                variances_reshaped = variances.reshape(
                     (*dummy_dims, n_dimensions)
                 )
 
@@ -307,27 +319,19 @@ class BatchNormalization(ops.TernaryOpClass):
                 )
 
                 return normalized * gamma_reshaped + beta_reshaped
-
-            means = md.mean(
-                x, axis=normalized_dimensions, keepdims=True
-            )  # returns mu for each dimension of input
-            self.mean_deviation = x - means
-            variances = md.mean(
-                md.square(self.mean_deviation),
-                axis=normalized_dimensions,
-                keepdims=True,
-            )  # returns sigma^2 for each input
+            
             self.std_deviation = md.sqrt(variances + epsilon)
 
             self.x_hat = self.mean_deviation / self.std_deviation
 
+            
             means_flat = means.ravel()
             variances_flat = variances.ravel()
 
-            moving_means *= momentum
-            moving_means += means_flat * (1 - momentum)
-            moving_variances *= momentum
-            moving_variances += variances_flat * (1 - momentum)
+            moving_means *= (1 - momentum)
+            moving_means += means_flat * momentum
+            moving_variances *= (1 - momentum)
+            moving_variances += variances_flat * momentum
 
             return gamma_reshaped * self.x_hat + beta_reshaped
 
@@ -341,26 +345,7 @@ class BatchNormalization(ops.TernaryOpClass):
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
-            epsilon: float = 1e-3,
-            momentum: float = 0.99,
-            trainable: bool = False,
-            moving_means: Optional[md.Tensor] = None,
-            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
-            if not trainable:
-                n_dimensions = x.shape[-1]
-                if moving_variances is None:
-                    moving_variances = md.ones(n_dimensions)
-                dummy_dims = [1] * (len(x.shape) - 1)
-                gamma_reshaped = gamma.reshape((*dummy_dims, n_dimensions))
-                variances_reshaped = moving_variances.reshape(
-                    (*dummy_dims, n_dimensions)
-                )
-
-                normalized = 1 / md.sqrt(variances_reshaped + epsilon)
-
-                return grad * normalized * gamma_reshaped
-
             ndims = len(grad.shape)
             norm_axes = tuple(range(ndims - 1))  # (0, 1, 2) for images
             m = math.prod([grad.shape[axis] for axis in norm_axes])
@@ -402,30 +387,7 @@ class BatchNormalization(ops.TernaryOpClass):
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
-            epsilon: float = 1e-3,
-            momentum: float = 0.99,
-            trainable: bool = False,
-            moving_means: Optional[md.Tensor] = None,
-            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
-            if not trainable:
-                n_dimensions = x.shape[-1]
-                if moving_variances is None:
-                    moving_variances = md.ones(n_dimensions)
-                if moving_means is None:
-                    moving_means = md.zeros(n_dimensions)
-
-                dummy_dims = [1] * (len(x.shape) - 1)
-                means_reshaped = moving_means.reshape((*dummy_dims, n_dimensions))
-                variances_reshaped = moving_variances.reshape(
-                    (*dummy_dims, n_dimensions)
-                )
-
-                normalized = (x - means_reshaped) / md.sqrt(
-                    variances_reshaped + epsilon
-                )
-                return grad * normalized
-
             normalized_dimensions = tuple(range(grad.ndim - 1))
             return md.sum(grad * self.x_hat, axis=normalized_dimensions)
 
@@ -434,11 +396,6 @@ class BatchNormalization(ops.TernaryOpClass):
             gamma: md.Tensor,
             beta: md.Tensor,
             grad: md.Tensor,
-            epsilon: float = 1e-3,
-            momentum: float = 0.99,
-            trainable: bool = False,
-            moving_means: Optional[md.Tensor] = None,
-            moving_variances: Optional[md.Tensor] = None,
         ) -> md.Tensor:
             normalized_dimensions = tuple(range(grad.ndim - 1))
             return md.sum(grad, axis=normalized_dimensions)
@@ -759,12 +716,12 @@ convolve2d: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_stateful_op
 )
 dropout: Callable[[md.Tensor, float], md.Tensor] = ops.create_stateful_op_func(
     op_class=Dropout,
+    propagate_kwargs=True,
     op_name="dropout",
 )
 batchnormalize: Callable[[md.Tensor, md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_stateful_op_func(
         op_class=BatchNormalization,
-        propagate_kwargs=True,
         tensor_only=True,
         op_name="batchnormalize",
     )
