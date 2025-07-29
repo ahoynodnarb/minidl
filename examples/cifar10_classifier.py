@@ -119,7 +119,7 @@ def train(network: NeuralNetwork):
     )
 
     def aug_func(images: md.Tensor) -> md.Tensor:
-        transformed_data = transform(images=images._data)
+        transformed_data = transform(images=images.as_numpy())
         transformed_images = transformed_data["images"]
         return md.Tensor(transformed_images)
 
