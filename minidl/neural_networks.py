@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from minidl.layers import Layer
     from minidl.optimizers import Optimizer
 
-from minidl.layers import OptimizableLayer
+from minidl.layers import OptimizableLayer, BatchNormalization
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler
 from minidl.utils.data import shuffle_dataset, split_batches
@@ -25,7 +25,7 @@ class NeuralNetwork:
         self.loss_function = loss_function
         self.optimizer = optimizer
         self._trainable = trainable
-        
+
         self.layers: List[Layer] = []
         self.optimizable_layers: List[OptimizableLayer] = []
         self.layer_optimizers: List[Optimizer] = []
@@ -47,11 +47,11 @@ class NeuralNetwork:
         with open(filename, "rb") as f:
             for layer in self.optimizable_layers:
                 layer.load_layer(f)
-                
+
     @property
     def trainable(self) -> bool:
         return self._trainable
-    
+
     @trainable.setter
     def trainable(self, trainable: bool):
         self._trainable = trainable
@@ -59,11 +59,21 @@ class NeuralNetwork:
             layer.trainable = trainable
 
     def update_layer_weights(self):
+        lowest = float("inf")
+        lowest_layer = None
         for optimizers, layer in zip(self.layer_optimizers, self.optimizable_layers):
+            assert layer.trainable
             if not layer.trainable:
                 continue
             for optimizer, param in zip(optimizers, layer.params):
+                norm = md.max(md.sum(md.abs(param.grad), axis=0)).item()
+                if not isinstance(layer, BatchNormalization) and lowest > norm:
+                    lowest = norm
+                    lowest_layer = layer
                 optimizer.update(param)
+        if md.rand().item() <= 0.02:
+            print(lowest_layer)
+            print(lowest)
 
     def setup_layers(self, reset_params: bool = False):
         reset_optimizers = reset_params or len(self.layer_optimizers) == 0
@@ -78,6 +88,7 @@ class NeuralNetwork:
 
                 for i in range(layer.n_params):
                     new_optimizer = deepcopy(self.optimizer)
+                    assert new_optimizer not in optimizers
                     optimizers[i] = new_optimizer
 
                 self.layer_optimizers.append(optimizers)
@@ -111,7 +122,7 @@ class NeuralNetwork:
         train_labels = labels
 
         if val_data is None or val_labels is None:
-            val_len = int(len(train_data) * 0.15)
+            val_len = int(len(train_data) * 0.3)
             indices = md.permutation(len(train_data))
 
             train_indices = indices[val_len:]
@@ -119,6 +130,15 @@ class NeuralNetwork:
 
             train_data, train_labels = data[train_indices], labels[train_indices]
             val_data, val_labels = data[val_indices], labels[val_indices]
+
+            val_occurences = md.Tensor([0] * 10)
+            train_occurences = md.Tensor([0] * 10)
+            md.index_add(val_occurences, md.argmax(val_labels, axis=-1), 1)
+            md.index_add(train_occurences, md.argmax(train_labels, axis=-1), 1)
+            val_occurences = [x.item() for x in val_occurences]
+            train_occurences = [x.item() for x in train_occurences]
+            print(f"{val_occurences=}")
+            print(f"{train_occurences=}")
 
         for epoch in range(epochs):
             shuffled_train_data, shuffled_train_labels = shuffle_dataset(
@@ -149,7 +169,7 @@ class NeuralNetwork:
                 y_pred = self(x)
 
                 loss = self.loss_function(y_true, y_pred)
-                loss.backward()
+                loss.backward(cleanup_mode="destroy")
 
                 with md.no_grad():
                     self.update_layer_weights()
@@ -218,6 +238,8 @@ class NeuralNetwork:
                 total=len(batched_testing_data),
                 bar_format="{l_bar}{bar:30}{r_bar}",
             )
+        seen = md.Tensor([0] * 10)
+        correct = md.Tensor([0] * 10)
 
         total_testing_correct = 0
         total_testing_loss = 0
@@ -226,11 +248,44 @@ class NeuralNetwork:
             for x, y_true in dataset:
                 y_pred = self(x)
                 loss = self.loss_function(y_true, y_pred)
+                # assert isinstance(y_true, md.Tensor)
+                # assert isinstance(y_pred, md.Tensor)
 
                 total_testing_correct += self.loss_function.total_correct(
                     y_true, y_pred
                 )
                 total_testing_loss += md.sum(loss).item()
+                md.index_add(seen, md.argmax(y_true, axis=-1), 1)
+                md.index_add(
+                    correct,
+                    md.argmax(y_true, axis=-1),
+                    (md.argmax(y_pred, axis=-1) == md.argmax(y_true, axis=-1)).astype(
+                        md.int64
+                    ),
+                )
+        print([x.item() for x in correct / seen])
+        #         for predicted_dist, true_dist in zip(y_pred, y_true):
+        #             print(type(true_dist))
+        #             correct_class = md.argmax(true_dist, axis=-1)
+        #             if md.argmax(predicted_dist, axis=-1) == correct_class:
+        #                 if correct_class in classes:
+        #                     seen, correct = classes[correct_class]
+        #                     classes[correct_class] = (seen + 1, correct + 1)
+        #                 else:
+        #                     classes[correct_class] = (1, 1)
+        #             else:
+        #                 if correct_class in classes:
+        #                     seen, correct = classes[correct_class]
+        #                     classes[correct_class] = seen + 1
+        #                 else:
+        #                     classes[correct_class] = (1, 0)
+
+        # accuracies = [
+        #     (class_name, correct / seen)
+        #     for class_name, (seen, correct) in classes.items()
+        # ]
+        # print(f"{accuracies=}")
+        # print(class)
 
         acc = total_testing_correct / len(testing_data)
         avg_loss = total_testing_loss / len(testing_data)

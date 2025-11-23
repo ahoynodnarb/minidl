@@ -265,10 +265,10 @@ class Dropout(ops.BinaryOpClass):
         ) -> md.Tensor:
             if not trainable:
                 return grad
-            
+
             if auto_scale:
                 return md.where(self.mask == 0, 0, grad / prob)
-            
+
             return md.where(self.mask == 0, 0, grad)
 
         return (grad_wrt_x, None)
@@ -307,30 +307,27 @@ class BatchNormalization(ops.TernaryOpClass):
                 axis=normalized_dimensions,
                 keepdims=True,
             )  # returns sigma^2 for each input
-            
+
             if not trainable:
                 means_reshaped = means.reshape((*dummy_dims, n_dimensions))
-                variances_reshaped = variances.reshape(
-                    (*dummy_dims, n_dimensions)
-                )
+                variances_reshaped = variances.reshape((*dummy_dims, n_dimensions))
 
                 normalized = (x - means_reshaped) / md.sqrt(
                     variances_reshaped + epsilon
                 )
 
                 return normalized * gamma_reshaped + beta_reshaped
-            
+
             self.std_deviation = md.sqrt(variances + epsilon)
 
             self.x_hat = self.mean_deviation / self.std_deviation
 
-            
             means_flat = means.ravel()
             variances_flat = variances.ravel()
 
-            moving_means *= (1 - momentum)
+            moving_means *= 1 - momentum
             moving_means += means_flat * momentum
-            moving_variances *= (1 - momentum)
+            moving_variances *= 1 - momentum
             moving_variances += variances_flat * momentum
 
             return gamma_reshaped * self.x_hat + beta_reshaped

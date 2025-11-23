@@ -13,7 +13,7 @@ from minidl.layers import (
 )
 from minidl.loss_functions import CrossEntropy
 from minidl.neural_networks import NeuralNetwork
-from minidl.optimizers import AdamW, ReduceLROnPlateau
+from minidl.optimizers import SGD, AdamW, ReduceLROnPlateau
 
 ONE_HOT_TO_PLAINTEXT = [
     "airplane",
@@ -84,6 +84,7 @@ def load_meta():
 
 def normalize_data(data):
     return (data - CIFAR10_MEANS) / CIFAR10_STDS
+    # return (data - md.mean(data)) / md.std(data)
 
 
 def test(network: NeuralNetwork):
@@ -94,7 +95,7 @@ def test(network: NeuralNetwork):
         [os.path.join(parent_directory, "test_batch")]
     )
     network.test(
-        testing_images, testing_labels, batch_size=64, norm_func=normalize_data
+        testing_images, testing_labels, batch_size=32, norm_func=normalize_data
     )
 
 
@@ -109,25 +110,28 @@ def train(network: NeuralNetwork):
     transform = A.Compose(
         [
             A.HorizontalFlip(p=0.5),
+            # A.RandomCrop(32, 32, pad_if_needed=True),
             A.Affine(
                 translate_percent={
-                    "x": (-0.1, 0.1),
-                    "y": (-0.1, 0.1),
+                    "x": (-0.2, 0.2),
+                    "y": (-0.2, 0.2),
                 },
+                p=1.0,
             ),
         ]
     )
 
     def aug_func(images: md.Tensor) -> md.Tensor:
-        transformed_data = transform(images=images.as_numpy())
+        transformed_data = transform(images=images)
         transformed_images = transformed_data["images"]
+        # return transformed_images
         return md.Tensor(transformed_images)
 
     training_images, training_labels = load_formatted_data(data_batch_files)
 
-    testing_images, testing_labels = load_formatted_data(
-        [os.path.join(parent_directory, "test_batch")]
-    )
+    # testing_images, testing_labels = load_formatted_data(
+    #     [os.path.join(parent_directory, "test_batch")]
+    # )
     network.trainable = True
     network.train(
         training_images,
@@ -136,59 +140,115 @@ def train(network: NeuralNetwork):
         epochs=50,
         norm_func=normalize_data,
         aug_func=aug_func,
-        val_data=testing_images,
-        val_labels=testing_labels,
+        # val_data=testing_images,
+        # val_labels=testing_labels,
     )
 
 
 if __name__ == "__main__":
-    optim = AdamW(learning_rate=5e-4)
+    optim = SGD(learning_rate=1e-2)
+    # optim = AdamW(learning_rate=5e-4)
     scheduler = ReduceLROnPlateau(optimizer=optim, factor=0.5, patience=3, min_lr=1e-6)
     # probably don't change dropout, increasing it gets too aggressive and the network stops learning midway through
+    # cross_entropy = CrossEntropy(from_logits=True)
     cross_entropy = CrossEntropy(from_logits=True, smoothing=0.05)
     network = NeuralNetwork(loss_function=cross_entropy, optimizer=scheduler)
     network.set_layers(
         Conv2D(
-            32, 32, 3, padding=1, n_kernels=32, kernel_size=3, stride=1, l2_lambda=1e-4
+            32,
+            32,
+            3,
+            padding=1,
+            n_kernels=32,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 32, 32, 3, padding=1, n_kernels=16, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.5),
         BatchNormalization(32),
         Conv2D(
-            32, 32, 32, padding=1, n_kernels=32, kernel_size=3, stride=1, l2_lambda=1e-4
+            32,
+            32,
+            32,
+            padding=1,
+            n_kernels=32,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 32, 32, 16, padding=1, n_kernels=16, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.4),
         BatchNormalization(32),
         MaxPooling2D(32, 32, pool_size=2),
-        Dropout(0.25),
         Conv2D(
-            16, 16, 32, padding=1, n_kernels=64, kernel_size=3, stride=1, l2_lambda=1e-4
+            16,
+            16,
+            32,
+            padding=1,
+            n_kernels=64,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 16, 16, 16, padding=1, n_kernels=32, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.5),
         BatchNormalization(64),
         Conv2D(
-            16, 16, 64, padding=1, n_kernels=64, kernel_size=3, stride=1, l2_lambda=1e-4
+            16,
+            16,
+            64,
+            padding=1,
+            n_kernels=64,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 16, 16, 32, padding=1, n_kernels=32, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.4),
         BatchNormalization(64),
         MaxPooling2D(16, 16, pool_size=2),
-        Dropout(0.25),
         Conv2D(
-            8, 8, 64, padding=1, n_kernels=128, kernel_size=3, stride=1, l2_lambda=1e-4
+            8,
+            8,
+            64,
+            padding=1,
+            n_kernels=128,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 8, 8, 32, padding=1, n_kernels=64, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.5),
         BatchNormalization(128),
         Conv2D(
-            8, 8, 128, padding=1, n_kernels=128, kernel_size=3, stride=1, l2_lambda=1e-4
+            8,
+            8,
+            128,
+            padding=1,
+            n_kernels=128,
+            kernel_size=3,
+            stride=1,
+            l2_lambda=1e-4,
+            # 8, 8, 64, padding=1, n_kernels=64, kernel_size=3, stride=1, l2_lambda=1e-4
         ),
         ActivationLayer(ReLU()),
+        # Dropout(0.5),
+        # Dropout(0.5),
         BatchNormalization(128),
         MaxPooling2D(8, 8, pool_size=2),
-        Dropout(0.25),
         FlatteningLayer((4, 4, 128)),
-        Dense(128, 4 * 4 * 128, l2_lambda=1e-4),
+        Dense(256, 4 * 4 * 128),
+        # Dense(256, 4 * 4 * 128, l2_lambda=1e-1),
+        # Dense(10, 4 * 4 * 64, l2_lambda=1e-4),
         ActivationLayer(ReLU()),
-        BatchNormalization(128),
-        Dense(10, 128, l2_lambda=1e-4),
+        BatchNormalization(256),
+        Dense(10, 256),
     )
     try:
         train(network)
