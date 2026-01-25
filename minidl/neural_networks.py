@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING
 
 import minidiff as md
+import minidiff.caching as mdc
 from tqdm import tqdm
 
 if TYPE_CHECKING:
@@ -59,21 +60,21 @@ class NeuralNetwork:
             layer.trainable = trainable
 
     def update_layer_weights(self):
-        lowest = float("inf")
-        lowest_layer = None
+        # lowest = float("inf")
+        # lowest_layer = None
         for optimizers, layer in zip(self.layer_optimizers, self.optimizable_layers):
             assert layer.trainable
             if not layer.trainable:
                 continue
             for optimizer, param in zip(optimizers, layer.params):
-                norm = md.max(md.sum(md.abs(param.grad), axis=0)).item()
-                if not isinstance(layer, BatchNormalization) and lowest > norm:
-                    lowest = norm
-                    lowest_layer = layer
+                # norm = md.max(md.sum(md.abs(param.grad), axis=0)).item()
+                # if not isinstance(layer, BatchNormalization) and lowest > norm:
+                #     lowest = norm
+                # lowest_layer = layer
                 optimizer.update(param)
-        if md.rand().item() <= 0.02:
-            print(lowest_layer)
-            print(lowest)
+        # if md.rand().item() <= 0.02:
+        #     print(lowest_layer)
+        #     print(lowest)
 
     def setup_layers(self, reset_params: bool = False):
         reset_optimizers = reset_params or len(self.layer_optimizers) == 0
@@ -131,90 +132,91 @@ class NeuralNetwork:
             train_data, train_labels = data[train_indices], labels[train_indices]
             val_data, val_labels = data[val_indices], labels[val_indices]
 
-            val_occurences = md.Tensor([0] * 10)
-            train_occurences = md.Tensor([0] * 10)
-            md.index_add(val_occurences, md.argmax(val_labels, axis=-1), 1)
-            md.index_add(train_occurences, md.argmax(train_labels, axis=-1), 1)
-            val_occurences = [x.item() for x in val_occurences]
-            train_occurences = [x.item() for x in train_occurences]
-            print(f"{val_occurences=}")
-            print(f"{train_occurences=}")
-
-        for epoch in range(epochs):
-            shuffled_train_data, shuffled_train_labels = shuffle_dataset(
-                train_data, train_labels
-            )
-            if aug_func is not None:
-                shuffled_train_data = aug_func(shuffled_train_data)
-
-            if norm_func is not None:
-                shuffled_train_data = norm_func(shuffled_train_data)
-
-            batched_train_data = split_batches(shuffled_train_data, batch_size)
-            batched_train_labels = split_batches(shuffled_train_labels, batch_size)
-
-            dataset = zip(batched_train_data, batched_train_labels)
-            if print_output:
-                dataset = tqdm(
-                    dataset,
-                    desc=f"Epoch #{epoch + 1}",
-                    total=len(batched_train_data),
-                    bar_format="{l_bar}{bar:30}{r_bar}",
+            # val_occurences = md.Tensor([0] * 10)
+            # train_occurences = md.Tensor([0] * 10)
+            # md.index_add(val_occurences, md.argmax(val_labels, axis=-1), 1)
+            # md.index_add(train_occurences, md.argmax(train_labels, axis=-1), 1)
+            # val_occurences = [x.item() for x in val_occurences]
+            # train_occurences = [x.item() for x in train_occurences]
+            # print(f"{val_occurences=}")
+            # print(f"{train_occurences=}")
+        with mdc.reuse_graph():
+            for epoch in range(epochs):
+                shuffled_train_data, shuffled_train_labels = shuffle_dataset(
+                    train_data, train_labels
                 )
+                if aug_func is not None:
+                    shuffled_train_data = aug_func(shuffled_train_data)
 
-            total_training_correct = 0
-            total_training_loss = 0
+                if norm_func is not None:
+                    shuffled_train_data = norm_func(shuffled_train_data)
 
-            for x, y_true in dataset:
-                y_pred = self(x)
+                batched_train_data = split_batches(shuffled_train_data, batch_size)
+                batched_train_labels = split_batches(shuffled_train_labels, batch_size)
 
-                loss = self.loss_function(y_true, y_pred)
-                loss.backward(cleanup_mode="destroy")
+                dataset = zip(batched_train_data, batched_train_labels)
+                if print_output:
+                    dataset = tqdm(
+                        dataset,
+                        desc=f"Epoch #{epoch + 1}",
+                        total=len(batched_train_data),
+                        bar_format="{l_bar}{bar:30}{r_bar}",
+                    )
 
-                with md.no_grad():
-                    self.update_layer_weights()
+                total_training_correct = 0
+                total_training_loss = 0
 
-                total_training_correct += self.loss_function.total_correct(
-                    y_true, y_pred
+                for x, y_true in dataset:
+                    y_pred = self(x)
+
+                    loss = self.loss_function(y_true, y_pred)
+                    loss.backward(cleanup_mode="destroy")
+
+                    with md.no_grad():
+                        self.update_layer_weights()
+
+                    total_training_correct += self.loss_function.total_correct(
+                        y_true, y_pred
+                    )
+                    total_training_loss += md.sum(loss).item()
+
+                self.trainable = False
+                val_acc, avg_val_loss = self.test(
+                    val_data,
+                    val_labels,
+                    batch_size=batch_size,
+                    norm_func=norm_func,
+                    print_output=False,
                 )
-                total_training_loss += md.sum(loss).item()
+                self.trainable = True
+                # print("ended testing")
 
-            self.trainable = False
-            val_acc, avg_val_loss = self.test(
-                val_data,
-                val_labels,
-                batch_size=batch_size,
-                norm_func=norm_func,
-                print_output=False,
-            )
-            self.trainable = True
+                training_acc = total_training_correct / len(train_data)
+                avg_training_loss = total_training_loss / len(train_data)
 
-            training_acc = total_training_correct / len(train_data)
-            avg_training_loss = total_training_loss / len(train_data)
+                for optimizers in self.layer_optimizers:
+                    for optimizer in optimizers:
+                        if not isinstance(optimizer, LRScheduler):
+                            continue
+                        optimizer.update_state(epoch, avg_val_loss)
 
-            for optimizers in self.layer_optimizers:
-                for optimizer in optimizers:
-                    if not isinstance(optimizer, LRScheduler):
-                        continue
-                    optimizer.update_state(epoch, avg_val_loss)
-
-            if print_output:
-                print(
-                    f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
-                    sep="\n",
-                )
-                print(
-                    f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
-                    sep="\n",
-                )
-                print(
-                    f"Training accuracy at the end of epoch {epoch + 1}: {training_acc}",
-                    sep="\n",
-                )
-                print(
-                    f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
-                    sep="\n",
-                )
+                if print_output:
+                    print(
+                        f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
+                        sep="\n",
+                    )
+                    print(
+                        f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
+                        sep="\n",
+                    )
+                    print(
+                        f"Training accuracy at the end of epoch {epoch + 1}: {training_acc}",
+                        sep="\n",
+                    )
+                    print(
+                        f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
+                        sep="\n",
+                    )
 
     def test(
         self,

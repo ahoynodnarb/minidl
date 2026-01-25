@@ -733,7 +733,7 @@ meanpool2d: Callable[[md.Tensor, int], md.Tensor] = ops.create_stateful_op_func(
 )
 cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_binary_op_func(
     forward_func=ce_forward,
-    grad_b=ce_backward,
+    grad_y=ce_backward,
     tensor_only=True,
     propagate_kwargs=True,
     op_name="cross_entropy",
@@ -741,7 +741,7 @@ cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_binary_o
 binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_binary_op_func(
         forward_func=bce_forward,
-        grad_b=bce_backward,
+        grad_y=bce_backward,
         tensor_only=True,
         propagate_kwargs=True,
         op_name="binary_cross_entropy",
@@ -750,7 +750,7 @@ binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
 mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_binary_op_func(
         forward_func=mse_forward,
-        grad_b=mse_backward,
+        grad_y=mse_backward,
         tensor_only=True,
         op_name="mean_squared_error",
     )
