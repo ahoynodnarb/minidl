@@ -13,18 +13,14 @@ if TYPE_CHECKING:
     from minidl.layers import Layer
     from minidl.optimizers import Optimizer
 
-from minidl.layers import OptimizableLayer, BatchNormalization
+from minidl.layers import OptimizableLayer
 from minidl.loss_functions import LossFunction
 from minidl.optimizers import LRScheduler
 from minidl.utils.data import shuffle_dataset, split_batches
 
 
 class NeuralNetwork:
-    def __init__(
-        self, loss_function: LossFunction, optimizer: Optimizer, trainable: bool = False
-    ):
-        self.loss_function = loss_function
-        self.optimizer = optimizer
+    def __init__(self, trainable: bool = False):
         self._trainable = trainable
 
         self.layers: List[Layer] = []
@@ -60,23 +56,14 @@ class NeuralNetwork:
             layer.trainable = trainable
 
     def update_layer_weights(self):
-        # lowest = float("inf")
-        # lowest_layer = None
         for optimizers, layer in zip(self.layer_optimizers, self.optimizable_layers):
             assert layer.trainable
             if not layer.trainable:
                 continue
             for optimizer, param in zip(optimizers, layer.params):
-                # norm = md.max(md.sum(md.abs(param.grad), axis=0)).item()
-                # if not isinstance(layer, BatchNormalization) and lowest > norm:
-                #     lowest = norm
-                # lowest_layer = layer
                 optimizer.update(param)
-        # if md.rand().item() <= 0.02:
-        #     print(lowest_layer)
-        #     print(lowest)
 
-    def setup_layers(self, reset_params: bool = False):
+    def setup_layers(self, optimizer: Optimizer, reset_params: bool = False):
         reset_optimizers = reset_params or len(self.layer_optimizers) == 0
         with md.no_grad():
             for layer in self.optimizable_layers:
@@ -88,7 +75,7 @@ class NeuralNetwork:
                 optimizers = [None] * layer.n_params
 
                 for i in range(layer.n_params):
-                    new_optimizer = deepcopy(self.optimizer)
+                    new_optimizer = deepcopy(optimizer)
                     assert new_optimizer not in optimizers
                     optimizers[i] = new_optimizer
 
@@ -104,20 +91,22 @@ class NeuralNetwork:
         self,
         data: md.Tensor,
         labels: md.Tensor,
+        loss_function: LossFunction,
+        optimizer: Optimizer,
         batch_size: int = 1,
         epochs: int = 1,
         val_data: Optional[md.Tensor] = None,
         val_labels: Optional[md.Tensor] = None,
         norm_func: Optional[Callable[[md.Tensor], md.Tensor]] = None,
         aug_func: Optional[Callable[[md.Tensor], md.Tensor]] = None,
-        print_output: bool = True,
+        silent: bool = False,
     ):
         if not self._trainable:
             raise ValueError(
                 "Can only call train() on a network that is currently trainable"
             )
 
-        self.setup_layers()
+        self.setup_layers(optimizer)
 
         train_data = data
         train_labels = labels
@@ -132,14 +121,6 @@ class NeuralNetwork:
             train_data, train_labels = data[train_indices], labels[train_indices]
             val_data, val_labels = data[val_indices], labels[val_indices]
 
-            # val_occurences = md.Tensor([0] * 10)
-            # train_occurences = md.Tensor([0] * 10)
-            # md.index_add(val_occurences, md.argmax(val_labels, axis=-1), 1)
-            # md.index_add(train_occurences, md.argmax(train_labels, axis=-1), 1)
-            # val_occurences = [x.item() for x in val_occurences]
-            # train_occurences = [x.item() for x in train_occurences]
-            # print(f"{val_occurences=}")
-            # print(f"{train_occurences=}")
         with mdc.reuse_graph():
             for epoch in range(epochs):
                 shuffled_train_data, shuffled_train_labels = shuffle_dataset(
@@ -155,7 +136,7 @@ class NeuralNetwork:
                 batched_train_labels = split_batches(shuffled_train_labels, batch_size)
 
                 dataset = zip(batched_train_data, batched_train_labels)
-                if print_output:
+                if not silent:
                     dataset = tqdm(
                         dataset,
                         desc=f"Epoch #{epoch + 1}",
@@ -163,50 +144,49 @@ class NeuralNetwork:
                         bar_format="{l_bar}{bar:30}{r_bar}",
                     )
 
-                total_training_correct = 0
-                total_training_loss = 0
+                total_training_correct = md.Tensor(0)
+                total_training_loss = md.Tensor(0)
 
                 for x, y_true in dataset:
                     y_pred = self(x)
 
-                    loss = self.loss_function(y_true, y_pred)
+                    loss = loss_function(y_true, y_pred)
                     loss.backward(cleanup_mode="destroy")
 
                     with md.no_grad():
                         self.update_layer_weights()
 
-                    total_training_correct += self.loss_function.total_correct(
-                        y_true, y_pred
-                    )
-                    total_training_loss += md.sum(loss).item()
+                        total_training_correct += loss_function.total_correct(
+                            y_true, y_pred
+                        )
+                        total_training_loss += md.sum(loss)
 
                 self.trainable = False
-                val_acc, avg_val_loss = self.test(
+                val_acc, total_val_loss = self.test(
                     val_data,
                     val_labels,
+                    loss_function,
                     batch_size=batch_size,
                     norm_func=norm_func,
-                    print_output=False,
+                    silent=True,
                 )
                 self.trainable = True
-                # print("ended testing")
 
                 training_acc = total_training_correct / len(train_data)
-                avg_training_loss = total_training_loss / len(train_data)
 
                 for optimizers in self.layer_optimizers:
                     for optimizer in optimizers:
                         if not isinstance(optimizer, LRScheduler):
                             continue
-                        optimizer.update_state(epoch, avg_val_loss)
+                        optimizer.update_state(epoch, total_val_loss.item())
 
-                if print_output:
+                if not silent:
                     print(
                         f"Validation accuracy at the end of epoch {epoch + 1}: {val_acc}",
                         sep="\n",
                     )
                     print(
-                        f"Average validation loss at the end of epoch {epoch + 1}: {avg_val_loss}",
+                        f"Validation loss at the end of epoch {epoch + 1}: {total_val_loss}",
                         sep="\n",
                     )
                     print(
@@ -214,7 +194,7 @@ class NeuralNetwork:
                         sep="\n",
                     )
                     print(
-                        f"Average training loss at the end of epoch {epoch + 1}: {avg_training_loss}",
+                        f"Training loss at the end of epoch {epoch + 1}: {total_training_loss}",
                         sep="\n",
                     )
 
@@ -222,9 +202,10 @@ class NeuralNetwork:
         self,
         testing_data: md.Tensor,
         testing_labels: md.Tensor,
+        loss_function: LossFunction,
         batch_size: int = 1,
         norm_func: Callable[[md.Tensor], md.Tensor] = None,
-        print_output: bool = True,
+        silent: bool = False,
     ) -> Tuple[float, float]:
         if norm_func is not None:
             testing_data = norm_func(testing_data)
@@ -233,73 +214,35 @@ class NeuralNetwork:
         batched_testing_labels = split_batches(testing_labels, batch_size)
 
         dataset = zip(batched_testing_data, batched_testing_labels)
-        if print_output:
+        if not silent:
             dataset = tqdm(
                 dataset,
                 desc="Testing",
                 total=len(batched_testing_data),
                 bar_format="{l_bar}{bar:30}{r_bar}",
             )
-        seen = md.Tensor([0] * 10)
-        correct = md.Tensor([0] * 10)
 
-        total_testing_correct = 0
-        total_testing_loss = 0
+        total_testing_correct = md.Tensor(0)
+        total_testing_loss = md.Tensor(0)
 
         with md.no_grad():
             for x, y_true in dataset:
                 y_pred = self(x)
-                loss = self.loss_function(y_true, y_pred)
-                # assert isinstance(y_true, md.Tensor)
-                # assert isinstance(y_pred, md.Tensor)
+                loss = loss_function(y_true, y_pred)
 
-                total_testing_correct += self.loss_function.total_correct(
-                    y_true, y_pred
-                )
-                total_testing_loss += md.sum(loss).item()
-                md.index_add(seen, md.argmax(y_true, axis=-1), 1)
-                md.index_add(
-                    correct,
-                    md.argmax(y_true, axis=-1),
-                    (md.argmax(y_pred, axis=-1) == md.argmax(y_true, axis=-1)).astype(
-                        md.int64
-                    ),
-                )
-        print([x.item() for x in correct / seen])
-        #         for predicted_dist, true_dist in zip(y_pred, y_true):
-        #             print(type(true_dist))
-        #             correct_class = md.argmax(true_dist, axis=-1)
-        #             if md.argmax(predicted_dist, axis=-1) == correct_class:
-        #                 if correct_class in classes:
-        #                     seen, correct = classes[correct_class]
-        #                     classes[correct_class] = (seen + 1, correct + 1)
-        #                 else:
-        #                     classes[correct_class] = (1, 1)
-        #             else:
-        #                 if correct_class in classes:
-        #                     seen, correct = classes[correct_class]
-        #                     classes[correct_class] = seen + 1
-        #                 else:
-        #                     classes[correct_class] = (1, 0)
-
-        # accuracies = [
-        #     (class_name, correct / seen)
-        #     for class_name, (seen, correct) in classes.items()
-        # ]
-        # print(f"{accuracies=}")
-        # print(class)
+                total_testing_correct += loss_function.total_correct(y_true, y_pred)
+                total_testing_loss += md.sum(loss)
 
         acc = total_testing_correct / len(testing_data)
-        avg_loss = total_testing_loss / len(testing_data)
 
-        if print_output:
+        if not silent:
             print(
                 f"Total testing accuracy: {acc}",
                 sep="\n",
             )
             print(
-                f"Average testing loss: {avg_loss}",
+                f"Total testing loss: {total_testing_loss}",
                 sep="\n",
             )
 
-        return acc, avg_loss
+        return acc, total_testing_loss

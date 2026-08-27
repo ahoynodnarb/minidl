@@ -30,12 +30,12 @@ class CrossEntropy(LossFunction):
             smoothing=self.smoothing,
         )
 
-    def total_correct(self, y_true: md.Tensor, y_pred: md.Tensor) -> int:
+    def total_correct(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
         overlap = md.argmax(y_true, axis=-1) == md.argmax(y_pred, axis=-1)
-        total_correct = md.sum(overlap).item()
+        total_correct = md.sum(overlap)
         return total_correct
 
-    def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor) -> float:
+    def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
         return self.total_correct(y_true, y_pred) / len(y_true)
 
 
@@ -53,12 +53,12 @@ class BinaryCrossEntropy(LossFunction):
             smoothing=self.smoothing,
         )
 
-    def total_correct(self, y_true: md.Tensor, y_pred: md.Tensor) -> int:
+    def total_correct(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
         overlap = md.argmax(y_true, axis=-1) == md.argmax(y_pred, axis=-1)
-        total_correct = md.sum(overlap).item()
+        total_correct = md.sum(overlap)
         return total_correct
 
-    def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor) -> float:
+    def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
         return self.total_correct(y_true, y_pred) / len(y_true)
 
 
@@ -68,10 +68,12 @@ class MeanSquaredError(LossFunction):
 
     def total_correct(
         self, y_true: md.Tensor, y_pred: md.Tensor, tolerance: float = 0.1
-    ) -> int:
+    ) -> md.Tensor:
         overlap = md.abs(y_true - y_pred) < tolerance
-        total_correct = md.sum(overlap).item()
+        total_correct = md.sum(overlap)
         return total_correct
 
-    def accuracy(self, y_true: md.Tensor, y_pred: md.Tensor, tolerance=0.1) -> float:
-        return self.total_correct(y_true, y_pred, tolerance=tolerance) / len(y_true)
+    def accuracy(
+        self, y_true: md.Tensor, y_pred: md.Tensor, tolerance=0.1
+    ) -> md.Tensor:
+        return self.total_correct(y_true, y_pred, tolerance=tolerance) / y_true.size

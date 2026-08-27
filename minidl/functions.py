@@ -203,7 +203,7 @@ class Convolve2D(ops.BinaryOpClass):
                 im2col_indices=self.backward_input_indices,
             )
 
-            return grad_wrt_x
+            return grad_wrt_x / 2
 
         # https://deeplearning.cs.cmu.edu/F21/document/recitation/Recitation5/CNN_Backprop_Recitation_5_F21.pdf
         # the gradient with respect to the weights (kernel) tells us how the loss function changes relative to
@@ -658,13 +658,11 @@ def bce_backward(
 
 
 def mse_forward(y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
-    averaged_axes = tuple(range(1, y_true.ndim))
-    return md.mean((y_true - y_pred) ** 2, axis=averaged_axes)
+    return md.sum((y_true - y_pred) ** 2) / len(y_true)
 
 
 def mse_backward(y_true: md.Tensor, y_pred: md.Tensor, grad: md.Tensor) -> md.Tensor:
-    averaged_elements = math.prod(y_true.shape[1:])
-    return grad * 2 * (y_pred - y_true) / averaged_elements
+    return grad * -2 * (y_true - y_pred) / len(y_true)
 
 
 def softmax_forward(x: md.Tensor) -> md.Tensor:
