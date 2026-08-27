@@ -124,7 +124,10 @@ class Dropout(Layer):
 
     def forward(self, x: md.Tensor) -> md.Tensor:
         return F.dropout(
-            x, self.p, auto_scale=self.auto_scale, trainable=self.trainable
+            x,
+            self.p,
+            auto_scale=self.auto_scale,
+            trainable=self.trainable,
         )
 
 
@@ -218,6 +221,8 @@ class Conv2D(OptimizableLayer):
         self.padding = get_padded_edges(padding)
         self.n_kernels = n_kernels
         self.stride = stride
+        self.in_height = in_height
+        self.in_width = in_width
         self.in_channels = in_channels
 
         if isinstance(kernel_size, tuple):
@@ -258,7 +263,7 @@ class Conv2D(OptimizableLayer):
     def setup(self, trainable: bool = True, reset_params: bool = False):
         self.trainable = trainable
         if reset_params or self.kernels is None:
-            fan_in = self.kernel_height * self.kernel_width * self.in_channels
+            fan_in = self.in_height * self.in_width * self.in_channels
             scale = math.sqrt(2.0 / fan_in)
             self.kernels = scale * md.randn(
                 self.n_kernels,
@@ -294,7 +299,6 @@ class MaxPooling2D(Layer):
             stride = pool_size
         self.stride = stride
 
-        # self.in_dims = (in_height, in_width)
         out_dims = calculate_convolved_dimensions(
             in_height, in_width, self.pool_size, self.pool_size, self.stride
         )
@@ -325,7 +329,6 @@ class MeanPooling2D(Layer):
             stride = pool_size
         self.stride = stride
 
-        # self.in_dims = (in_height, in_width)
         out_dims = calculate_convolved_dimensions(
             in_height, in_width, self.pool_size, self.pool_size, 0, self.stride
         )

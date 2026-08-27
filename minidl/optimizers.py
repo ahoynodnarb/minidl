@@ -24,19 +24,39 @@ class SGD(Optimizer):
     def __init__(self, learning_rate: float = 0.01, beta: float = 0.9):
         self.learning_rate = learning_rate
         self.beta = beta
-        self.velocity = None
+        self.b_t = None
+        # self.momentum = None
+        # self.velocity = None
 
     def update(self, param: md.Tensor, l2_lambda: float = 0.0):
-        if self.velocity is None:
-            self.velocity = md.zeros_like(param)
+        # if self.momentum is None:
+        #     self.momentum = md.zeros_like(param)
+        # if self.velocity is None:
+        #     self.velocity = md.zeros_like(param)
 
-        grad = param.grad
-        batch_size = grad.shape[0]
-        regularized_grad = grad + l2_lambda * param
-        self.velocity = (
-            self.beta * self.velocity + self.learning_rate * regularized_grad
-        )
-        param -= self.velocity / batch_size
+        # g_t = param.grad
+        # batch_size = grad.shape[0]
+        g_t = param.grad + l2_lambda * param
+        if self.b_t is None:
+            self.b_t = g_t
+        else:
+            self.b_t = self.beta * self.b_t + g_t
+        param -= self.learning_rate * (g_t + self.beta * self.b_t)
+        # param = (
+        #     param
+        #     - self.momentum
+        #     * (self.momentum * self.velocity - self.learning_rate * regularized_grad)
+        #     - self.learning_rate * regularized_grad
+        # )
+        # self.momentum = (
+        #     self.beta**2 * self.momentum
+        #     - (1 + self.beta) * self.learning_rate * regularized_grad
+        # )
+        # param += self.momentum
+        # self.velocity = (
+        #     self.beta * self.velocity + self.learning_rate * regularized_grad
+        # )
+        # param -= self.velocity / batch_size
 
 
 class Adam(Optimizer):

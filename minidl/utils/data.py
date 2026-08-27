@@ -12,6 +12,7 @@ def split_batches(data: md.Tensor, batch_size: int) -> List[md.Tensor]:
     if batch_size == 1:
         return md.expand_dims(data, axis=1)
     indices = range(batch_size, len(data), batch_size)
+    
     return md.split(data, indices)
 
 

@@ -203,7 +203,7 @@ class Convolve2D(ops.BinaryOpClass):
                 im2col_indices=self.backward_input_indices,
             )
 
-            return grad_wrt_x
+            return grad_wrt_x / 2
 
         # https://deeplearning.cs.cmu.edu/F21/document/recitation/Recitation5/CNN_Backprop_Recitation_5_F21.pdf
         # the gradient with respect to the weights (kernel) tells us how the loss function changes relative to
@@ -265,10 +265,10 @@ class Dropout(ops.BinaryOpClass):
         ) -> md.Tensor:
             if not trainable:
                 return grad
-            
+
             if auto_scale:
                 return md.where(self.mask == 0, 0, grad / prob)
-            
+
             return md.where(self.mask == 0, 0, grad)
 
         return (grad_wrt_x, None)
@@ -307,30 +307,27 @@ class BatchNormalization(ops.TernaryOpClass):
                 axis=normalized_dimensions,
                 keepdims=True,
             )  # returns sigma^2 for each input
-            
+
             if not trainable:
                 means_reshaped = means.reshape((*dummy_dims, n_dimensions))
-                variances_reshaped = variances.reshape(
-                    (*dummy_dims, n_dimensions)
-                )
+                variances_reshaped = variances.reshape((*dummy_dims, n_dimensions))
 
                 normalized = (x - means_reshaped) / md.sqrt(
                     variances_reshaped + epsilon
                 )
 
                 return normalized * gamma_reshaped + beta_reshaped
-            
+
             self.std_deviation = md.sqrt(variances + epsilon)
 
             self.x_hat = self.mean_deviation / self.std_deviation
 
-            
             means_flat = means.ravel()
             variances_flat = variances.ravel()
 
-            moving_means *= (1 - momentum)
+            moving_means *= 1 - momentum
             moving_means += means_flat * momentum
-            moving_variances *= (1 - momentum)
+            moving_variances *= 1 - momentum
             moving_variances += variances_flat * momentum
 
             return gamma_reshaped * self.x_hat + beta_reshaped
@@ -661,13 +658,11 @@ def bce_backward(
 
 
 def mse_forward(y_true: md.Tensor, y_pred: md.Tensor) -> md.Tensor:
-    averaged_axes = tuple(range(1, y_true.ndim))
-    return md.mean((y_true - y_pred) ** 2, axis=averaged_axes)
+    return md.sum((y_true - y_pred) ** 2) / len(y_true)
 
 
 def mse_backward(y_true: md.Tensor, y_pred: md.Tensor, grad: md.Tensor) -> md.Tensor:
-    averaged_elements = math.prod(y_true.shape[1:])
-    return grad * 2 * (y_pred - y_true) / averaged_elements
+    return grad * -2 * (y_true - y_pred) / len(y_true)
 
 
 def softmax_forward(x: md.Tensor) -> md.Tensor:
@@ -736,7 +731,7 @@ meanpool2d: Callable[[md.Tensor, int], md.Tensor] = ops.create_stateful_op_func(
 )
 cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_binary_op_func(
     forward_func=ce_forward,
-    grad_b=ce_backward,
+    grad_y=ce_backward,
     tensor_only=True,
     propagate_kwargs=True,
     op_name="cross_entropy",
@@ -744,7 +739,7 @@ cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = ops.create_binary_o
 binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_binary_op_func(
         forward_func=bce_forward,
-        grad_b=bce_backward,
+        grad_y=bce_backward,
         tensor_only=True,
         propagate_kwargs=True,
         op_name="binary_cross_entropy",
@@ -753,7 +748,7 @@ binary_cross_entropy: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
 mean_squared_error: Callable[[md.Tensor, md.Tensor], md.Tensor] = (
     ops.create_binary_op_func(
         forward_func=mse_forward,
-        grad_b=mse_backward,
+        grad_y=mse_backward,
         tensor_only=True,
         op_name="mean_squared_error",
     )
