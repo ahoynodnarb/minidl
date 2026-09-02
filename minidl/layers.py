@@ -117,10 +117,9 @@ class Dense(OptimizableLayer):
 # from its inputs. similar to making students use different techniques to answer questions
 # rather than memorizing the test itself
 class Dropout(Layer):
-    def __init__(self, prob: float, auto_scale: bool = True, trainable: bool = False):
+    def __init__(self, prob: float, auto_scale: bool = True):
         self.p = prob
         self.auto_scale = auto_scale
-        self.trainable = trainable
 
     def forward(self, x: md.Tensor) -> md.Tensor:
         return F.dropout(
@@ -172,7 +171,7 @@ class BatchNormalization(OptimizableLayer):
             self.bind_param(self.beta)
 
     def forward(self, x: md.Tensor) -> md.Tensor:
-        return F.batchnormalize(
+        return F.batch_normalize(
             x,
             self.gamma,
             self.beta,
@@ -242,14 +241,8 @@ class Conv2D(OptimizableLayer):
         # we optimize the actual convolution as a large matrix multiplication
         # and we keep track of how the matrices need to be rearranged for that
         # matrix multiplication, also so we don't have to recompute it for each batch
-        self.forward_indices = calculate_im2col_indices(
+        self.im2col_indices = calculate_im2col_indices(
             *out_dims, self.kernel_height, self.kernel_width, self.stride
-        )
-        self.backward_input_indices = calculate_im2col_indices(
-            in_height, in_width, self.kernel_height, self.kernel_width, self.stride
-        )
-        self.backward_kern_indices = calculate_im2col_indices(
-            self.kernel_height, self.kernel_width, *out_dims, self.stride
         )
 
         self.kernels = None
@@ -280,9 +273,7 @@ class Conv2D(OptimizableLayer):
             self.kernels,
             padding=self.padding,
             stride=self.stride,
-            forward_indices=self.forward_indices,
-            backward_input_indices=self.backward_input_indices,
-            backward_kern_indices=self.backward_kern_indices,
+            im2col_indices=self.im2col_indices,
         )
 
 
@@ -303,79 +294,14 @@ class MaxPooling2D(Layer):
             in_height, in_width, self.pool_size, self.pool_size, self.stride
         )
 
-        self.forward_indices = calculate_im2col_indices(
+        self.im2col_indices = calculate_im2col_indices(
             *out_dims, self.pool_size, self.pool_size, self.stride
         )
 
     def forward(self, x: md.Tensor) -> md.Tensor:
-        return F.maxpool2d(
+        return F.max_pool2d(
             x,
             self.pool_size,
             stride=self.stride,
-            forward_indices=self.forward_indices,
+            im2col_indices=self.im2col_indices,
         )
-
-
-class MeanPooling2D(Layer):
-    def __init__(
-        self,
-        in_height: int,
-        in_width: int,
-        pool_size: int,
-        stride: Optional[int] = None,
-    ):
-        self.pool_size = pool_size
-        if stride is None:
-            stride = pool_size
-        self.stride = stride
-
-        out_dims = calculate_convolved_dimensions(
-            in_height, in_width, self.pool_size, self.pool_size, 0, self.stride
-        )
-
-        self.forward_indices = calculate_im2col_indices(
-            *out_dims, self.pool_size, self.pool_size, self.stride
-        )
-
-    def forward(self, x: md.Tensor) -> md.Tensor:
-        return F.meanpool2d(
-            x,
-            self.pool_size,
-            stride=self.stride,
-            forward_indices=self.forward_indices,
-        )
-
-
-class ResidualBlock(OptimizableLayer):
-    def __init__(self, *layers: Layer):
-        super().__init__()
-        self.layers = layers
-        self.update_params()
-
-    def update_params(self):
-        for layer in self.layers:
-            if not isinstance(layer, OptimizableLayer):
-                continue
-            self.params.extend(layer.params)
-
-    def setup(self, trainable: bool = True, reset_params: bool = False):
-        for layer in self.layers:
-            if not isinstance(layer, OptimizableLayer):
-                continue
-            layer.setup(trainable=trainable, reset_params=reset_params)
-
-    def save_layer(self, fstream: BinaryIO):
-        for layer in self.layers:
-            if isinstance(layer, OptimizableLayer):
-                layer.save_layer(fstream)
-
-    def load_layer(self, fstream: BinaryIO):
-        for layer in self.layers:
-            if isinstance(layer, OptimizableLayer):
-                layer.load_layer(fstream)
-
-    def forward(self, x: md.Tensor) -> md.Tensor:
-        y = x
-        for layer in self.layers:
-            y = layer(y)
-        return y + x

@@ -25,7 +25,7 @@ def convert_to_one_hot(labels, classes):
     return formatted
 
 
-def train_network(network):
+def train_network(network, loss_function, optimizer):
     image_data = MNIST("./examples/MNIST/")
     training_images, training_labels = image_data.load_training()
     # normalize the images to be between 0 and 1, so the inputs are not too massive
@@ -36,10 +36,17 @@ def train_network(network):
     training_labels = convert_to_one_hot(training_labels, 10)
 
     network.trainable = True
-    network.train(training_images, training_labels, batch_size=64, epochs=50)
+    network.train(
+        training_images,
+        training_labels,
+        loss_function,
+        optimizer,
+        batch_size=64,
+        epochs=50,
+    )
 
 
-def test_network(network):
+def test_network(network, loss_function):
     data = MNIST("./examples/MNIST/")
 
     testing_images, testing_labels = data.load_testing()
@@ -49,7 +56,7 @@ def test_network(network):
     testing_labels = convert_to_one_hot(testing_labels, 10)
 
     network.trainable = False
-    network.test(testing_images, testing_labels, batch_size=64)
+    network.test(testing_images, testing_labels, loss_function, batch_size=64)
 
 
 def test_dataset_at_index(network, index):
@@ -72,10 +79,7 @@ def test_dataset_at_index(network, index):
 
 
 if __name__ == "__main__":
-    network = NeuralNetwork(
-        loss_function=CrossEntropy(from_logits=True),
-        optimizer=Adam(learning_rate=0.001),
-    )
+    network = NeuralNetwork()
     network.set_layers(
         ExpandingLayer((28, 28, 1)),
         Conv2D(28, 28, 1, padding=2, n_kernels=5, kernel_size=5, stride=1),
@@ -87,7 +91,11 @@ if __name__ == "__main__":
         Dense(10, 256),
     )
     try:
-        train_network(network)
+        train_network(
+            network,
+            CrossEntropy(from_logits=True),
+            Adam(learning_rate=0.001),
+        )
     except KeyboardInterrupt:
         pass
     finally:
